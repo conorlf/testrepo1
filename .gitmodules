@@ -1,0 +1,3 @@
+[submodule "keystroke-cipher-server/web/frontend/cipher-dashboard"]
+    path = keystroke-cipher-server/web/frontend/cipher-dashboard
+    url = https://github.com/conorlf/cipher-dashboard.git
