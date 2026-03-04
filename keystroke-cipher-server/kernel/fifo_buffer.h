@@ -6,13 +6,13 @@
 #include "keycipher.h"
 
 struct fifo_buffer {
-    char             messages[FIFO_SIZE][MSG_MAX_LEN];
-    int              head;
-    int              tail;
-    int              count;
+    char messages[FIFO_SIZE][MSG_MAX_LEN];
+    int head;
+    int tail;
+    int count;
     struct semaphore slots_free;  /* blocks writers when 0 - backpressure */
     struct semaphore slots_used;  /* blocks readers when 0 */
-    struct mutex     lock;        /* protects head/tail/count */
+    struct mutex lock;        /* protects head/tail/count */
 };
 
 void fifo_init(struct fifo_buffer *fifo);
