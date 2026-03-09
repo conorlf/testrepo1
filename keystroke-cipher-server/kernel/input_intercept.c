@@ -1,12 +1,15 @@
 #include <linux/input.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <linux/ktime.h>
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <net/net_namespace.h>
 #include "input_intercept.h"
 #include "fifo_buffer.h"
 #include "keycipher.h"
+#include "cipher.h"
+#include "typing_stack.h"
 
 /* Captures keystrokes from any keyboard (laptop, USB, Bluetooth) and pushes
 * them into the outgoing FIFO where they get encrypted by the kernel.
@@ -21,7 +24,8 @@
 *   7. keycipher_exit() calls input_intercept_exit() which calls input_unregister_handler() to unregister cleanly
 */
 
-extern struct fifo_buffer outgoing_fifo;
+/* current_stack accumulates encrypted keypresses until Enter is pressed */
+static struct typing_stack current_stack;
 
 /*
  * Uses the linux network header files and prebuilt functions to get the MAC address of the machine.
@@ -65,39 +69,49 @@ static const char keycode_to_ascii[256] = {
 /*
  * input_event_handler - fired by the kernel on every key event
  * type: event type (EV_KEY, EV_SYN etc), code: which key, value: 0=release 1=press 2=repeat
- * filters to key-press only, converts code to ASCII via keycode_to_ascii[]
- * builds a keycipher_message and calls fifo_write(&outgoing_fifo, &msg)
- * rot13_encrypt() is called inside fifo_write before storing in the FIFO
+ *
+ * Flow:
+ *   BACKSPACE  -> pop last encrypted char off current_stack
+ *   ENTER      -> snapshot timestamp + author, copy stack into keycipher_message,
+ *                 fifo_write() to outgoing_fifo, then clear the stack
+ *   other key  -> ASCII lookup -> rot13_encrypt -> push onto current_stack
  */
-static void input_event_handler(struct input_handle *handle, unsigned int type,
-                                 unsigned int code, int value)
+static void input_event_handler(struct input_handle *handle, unsigned int type, unsigned int code, int value)
 {
-    struct keycipher_message msg;
     char ch;
 
     if (type != EV_KEY) return;
-    if (value != 1) return; //Only captures press
+    if (value != 1) return; /* key-press only, ignore release and repeat */
 
     if (code == KEY_BACKSPACE) {
-        if (current_message.len > 0)
-            current_message.len--;  // pop last char — LIFO
-    } else if (code == KEY_ENTER) {
-        fifo_write(&outgoing_fifo, &current_message);  // commit — FIFO
-        memset(&current_message, 0, sizeof(current_message));
-    } else {
-        current_message.data[current_message.len++] = ch;  // push — LIFO
+        typing_stack_pop(&current_stack, &ch); /* discard popped char */
+        return;
     }
+
+    if (code == KEY_ENTER) {
+        struct keycipher_message msg;
+        int len = typing_stack_size(&current_stack);
+
+        memset(&msg, 0, sizeof(msg));
+        ktime_get_real_ts64(&msg.timestamp);
+        get_author_mac(msg.author, sizeof(msg.author));
+        memcpy(msg.data, current_stack.data, len);
+        msg.len = len;
+
+        fifo_write(&outbox_fifo, &msg);
+        typing_stack_clear(&current_stack);
+        printk(KERN_DEBUG "KeyCipher: message committed (%d chars)\n", len);
+        return;
+    }
+
+    /* Regular key: look up ASCII, encrypt, push onto stack */
     if (code >= ARRAY_SIZE(keycode_to_ascii)) return;
     ch = keycode_to_ascii[code];
     if (ch == 0) return;
 
-    memset(&msg, 0, sizeof(msg));
-    msg.data[0] = ch;
-    msg.len = 1;
-
-    fifo_write(&outgoing_fifo, &msg);
-
-    printk(KERN_DEBUG "KeyCipher: captured key %c\n", ch);
+    rot13_encrypt(&ch, 1);
+    typing_stack_push(&current_stack, ch);
+    printk(KERN_DEBUG "KeyCipher: pushed encrypted char\n");
 }
 
 
@@ -186,6 +200,8 @@ static struct input_handler keycipher_input_handler = {
 int input_intercept_init(void)
 {
     int ret;
+
+    typing_stack_init(&current_stack);
 
     ret = input_register_handler(&keycipher_input_handler);
     if (ret < 0) {
