@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "direct.h"
+#include "../network/client.h"
 
 #define DEVICE_OUT "/dev/keycipher_out"
 #define DEVICE_IN "/dev/keycipher_in"
@@ -27,13 +28,13 @@ typedef struct {
 int direct_send(peer_t *peer, const char *plaintext)
 {
     kernel_msg_t msg;
-    kernem_msg_t encrypted;
+    kernel_msg_t encrypted;
     int dev_fd;
     int ret;
     int bytes;
 
     memset(&msg, 0, sizeof(msg));
-    strncpy(msg.data, plaintext, sizeof(msg.data) - 1);
+    strncpy(msg.data, plaintext, sizeof(msg.data) - 1); // strncpy Limits how many bytes copied preventing overflowing the buffer
     msg.len = strlen(plaintext);
 
     dev_fd = open(DEVICE_OUT, O_WRONLY);
@@ -76,6 +77,29 @@ int direct_send(peer_t *peer, const char *plaintext)
  */
 void *direct_receive_loop(void *arg)
 {
-    /* TODO: implement blocking receive loop */
+    kernel_msg_t msg;
+    int dev_fd;
+    int bytes;
+
+    dev_fd = open(DEVICE_IN, O_RDONLY);
+    if (dev_fd < 0) {
+        perror("direct_receive_loop: Open device failure");
+        return NULL;
+    }
+
+    printf("direct_receive_loop: Started, waiting for messages...\n");
+
+    while (1) {
+        bytes = read(dev_fd, &msg, sizeof(msg));
+        if (bytes < 0) {
+            perror("direct_receive_loop: Read message failure");
+            break;
+        }
+        if (bytes == 0) continue;
+
+        printf("%s: %.*s\n", msg.author, msg.len, msg.data);
+    }
+
+    close(dev_fd);
     return NULL;
 }
