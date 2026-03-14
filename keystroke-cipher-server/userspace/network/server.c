@@ -17,7 +17,7 @@ static int running = 1;
 static SSL_CTX *ssl_ctx;
 static pthread_t accept_thread;
 
-#define DEVICE_PATH "/dev/keycipher"
+#define DEVICE_PATH "/dev/keycipher_in"
 
 //Helpers for server_handle_connection
 /*
