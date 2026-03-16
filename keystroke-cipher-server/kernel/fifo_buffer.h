@@ -7,6 +7,7 @@
 
 struct fifo_buffer {
     char messages[FIFO_SIZE][MSG_MAX_LEN];
+    struct keycipher_message messages[FIFO_SIZE];
     int head;
     int tail;
     int count;
@@ -16,12 +17,12 @@ struct fifo_buffer {
 };
 
 void fifo_init(struct fifo_buffer *fifo);
-int  fifo_write(struct fifo_buffer *fifo, const char *msg, size_t len);
-int  fifo_read(struct fifo_buffer *fifo, char *msg, size_t len);
+int fifo_write(struct fifo_buffer *fifo, const struct keycipher_message *msg);
+int fifo_read(struct fifo_buffer *fifo, struct keycipher_message *msg);
 void fifo_flush(struct fifo_buffer *fifo);
 int  fifo_count(struct fifo_buffer *fifo);
 
-extern struct fifo_buffer incoming_fifo;
-extern struct fifo_buffer outgoing_fifo;
+extern struct fifo_buffer inbox_fifo;
+extern struct fifo_buffer outbox_fifo;
 
 #endif

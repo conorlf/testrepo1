@@ -3,7 +3,12 @@
 #include <linux/kernel.h>
 #include "proc_stats.h"
 #include "fifo_buffer.h"
-
+/*
+Initialise the global counters to 0 for testing purposes
+*/
+int stat_total_sent     = 0;
+int stat_total_received = 0;
+int stat_total_blocked  = 0;
 /*
  * stats_show - formats /proc/keycipher/stats output
  * called by the kernel when userspace reads the proc file
