@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>P2P Messaging</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="top-info">
+      <div>
+        <p class="label">Peers connected</p>
+        <p class="value">5</p>
+      </div>
+      <div>
+        <p class="label">Current IP</p>
+        <p class="value">192.168.1.14</p>
+      </div>
+      <div>
+        <p class="label">My ID</p>
+        <p class="value">node-004</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="column peers">
+        <div class="column-title">Available Rooms / Peers</div>
+        <div class="room item static" data-room="global-chat"># global-chat</div>
+        <div class="divider"></div>
+        <div class="room item" data-room="peer-1">peer-1</div>
+        <div class="room item" data-room="peer-2">peer-2</div>
+        <div class="room item" data-room="peer-3">peer-3</div>
+        <div class="room item" data-room="peer-4">peer-4</div>
+      </section>
+
+      <section class="column chat">
+        <div class="column-title" id="chatTitle">Chat</div>
+        <div id="messages" class="messages" aria-live="polite">
+          <div class="message from-them">Welcome to global chat.</div>
+          <div class="message from-me">Hello everyone.</div>
+        </div>
+        <div class="composer">
+          <input id="textInput" type="text" placeholder="Type a message..." maxlength="220" />
+          <button id="sendBtn">Send</button>
+        </div>
+      </section>
+
+      <section class="column info">
+        <div class="column-title">Connected Peer Info</div>
+        <div id="peerContainer"></div>
+      </section>
+    </main>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

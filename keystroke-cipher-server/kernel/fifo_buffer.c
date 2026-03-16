@@ -18,6 +18,20 @@ void fifo_init(struct fifo_buffer *fifo)
 
 int fifo_write(struct fifo_buffer *fifo, const struct keycipher_message *msg)
 {
+    if (down_interruptible(&fifo->slots_free))
+        return -ERESTARTSYS;   // interrupted by signal
+
+    mutex_lock(&fifo->lock); //mutex_lock
+
+    strncpy(fifo->messages[fifo->tail], msg, MSG_MAX_LEN); // copy msg into messages[tail]
+    fifo->messages[fifo->tail][MSG_MAX_LEN - 1] = '\0'; // safety
+
+    fifo->tail = (fifo->tail + 1) % FIFO_SIZE; //advance tail with wraparound: tail = (tail + 1) % FIFO_SIZE
+    fifo->count++; 
+
+    mutex_unlock(&fifo->lock); //mutex unlock
+
+    up(&fifo->slots_used);  // wake up slots_used to wake any blocked reader
     if (down_interruptible(&fifo->slots_free)){
         return -ERESTARTSYS;   // interrupted by signal
     }
@@ -36,11 +50,24 @@ int fifo_write(struct fifo_buffer *fifo, const struct keycipher_message *msg)
 }
 
 
+int fifo_read(struct fifo_buffer *fifo, char *msg, size_t len)
 int fifo_read(struct fifo_buffer *fifo, struct keycipher_message *msg)
 {
     /* down_interruptible slots_used
          blocks here if buffer is empty
          returns -ERESTARTSYS if interrupted*/
+    if (down_interruptible(&fifo->slots_used)) {
+        return -ERESTARTSYS;
+    }
+
+    mutex_lock(&fifo->lock); //mutex_lock
+    strncpy(msg, fifo->messages[fifo->head], len); msg[len - 1] = '\0'; // copy messages[head] into msg
+    
+    fifo->head = (fifo->head + 1) % FIFO_SIZE; // advance head with wraparound: head = (head + 1) % FIFO_SIZE
+    fifo->count--;// decrement count
+    
+    mutex_unlock(&fifo->lock); // mutex_unlock
+    up(&fifo->slots_free); // up slots_free - wakes any blocked writer (unblocks a peer) 
     if (down_interruptible(&fifo->slots_used)){
         return -ERESTARTSYS;
     }
@@ -70,7 +97,7 @@ void fifo_flush(struct fifo_buffer *fifo)
     sema_init(&fifo->slots_free, FIFO_SIZE);
     sema_init(&fifo->slots_used, 0);
 
-    mutex_unlock(&fifo->lock); // mutex_unlock
+    mutex_unlock(&fifo->unlock); // mutex_unlock
 }
 
 int fifo_count(struct fifo_buffer *fifo)

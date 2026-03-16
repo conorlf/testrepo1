@@ -5,7 +5,7 @@
 
 typedef enum {
     PEER_CONNECTED,
-    PEER_BLOCKED,    /* their incoming FIFO is full - we are waiting */
+    PEER_BLOCKED, //if their incoming FIFO is full; waiting
     PEER_OFFLINE
 } peer_status_t;
 

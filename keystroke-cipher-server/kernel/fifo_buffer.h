@@ -6,6 +6,7 @@
 #include "keycipher.h"
 
 struct fifo_buffer {
+    char messages[FIFO_SIZE][MSG_MAX_LEN];
     struct keycipher_message messages[FIFO_SIZE];
     int head;
     int tail;
