@@ -277,10 +277,3 @@ void server_stop(void)
     SSL_CTX_free(ssl_ctx);
     printf("KeyCipher: Server stopped\n");
 }
-
-//temporary main for testing can be deleted
-int main() {
-    server_init(8080);
-    while(1) sleep(1);
-    return 0;
-}
