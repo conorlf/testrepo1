@@ -1,7 +1,14 @@
+#include <stdio.h>
+#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
 #include "chatroom.h"
 #include "../network/client.h"
+
+#define DEVICE_OUT       "/dev/keycipher_out"
+#define DEVICE_CHATROOM  "/dev/keycipher_chatroom"
+#define PROC_STATS       "/proc/keycipher/stats"
 
 /*
  * chatroom_send - encrypt via kernel then broadcast to all peers

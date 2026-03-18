@@ -2,6 +2,7 @@
 
 struct fifo_buffer inbox_fifo;
 struct fifo_buffer outbox_fifo;
+struct fifo_buffer chatroom_fifo;
 
 void fifo_init(struct fifo_buffer *fifo)
 {

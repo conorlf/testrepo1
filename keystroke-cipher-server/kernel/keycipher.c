@@ -18,10 +18,12 @@ MODULE_VERSION("1.0");
 
 #define MINOR_OUT 0
 #define MINOR_IN  1
-#define NUM_DEVS  2
+#define MINOR_CHATROOM 2
+#define NUM_DEVS 3
+
 
 static dev_t dev_base;
-static struct cdev cdev_out, cdev_in;
+static struct cdev cdev_out, cdev_in, cdev_chatroom;
 
 struct keycipher_file_state {
     int mode; /* MODE_READ or MODE_WRITE */
@@ -165,9 +167,18 @@ static int __init keycipher_init(void)
         goto err_del_out;
     }
 
+    cdev_init(&cdev_chatroom, &fops);
+    cdev_chatroom.owner = THIS_MODULE;
+    ret = cdev_add(&cdev_chatroom, MKDEV(MAJOR(dev_base), MINOR_CHATROOM), 1);
+    if (ret) {
+        printk(KERN_ERR "KeyCipher: failed to add cdev_chatroom: %d\n", ret);
+        goto err_del_in;   
+    }
+
     /* Initialise both FIFOs inboxes */
     fifo_init(&inbox_fifo);
     fifo_init(&outbox_fifo);
+    fifo_init(&chatroom_fifo);
 
     /* Create /proc/keycipher/stats */
     ret = proc_stats_init();
@@ -184,12 +195,14 @@ static int __init keycipher_init(void)
     }
 
     /* Print major/minor numbers so load.sh can mknod the devices */
-    printk(KERN_INFO "KeyCipher: loaded. major=%d minor_out=%d minor_in=%d\n",
-           MAJOR(dev_base), MINOR_OUT, MINOR_IN);
+    printk(KERN_INFO "KeyCipher: loaded. major=%d out=%d in=%d chatroom=%d\n",
+           MAJOR(dev_base), MINOR_OUT, MINOR_IN, MINOR_CHATROOM);
     return 0;
 
 err_proc:
     proc_stats_exit();
+err_del_chatroom:
+    cdev_del(&cdev_chatroom);
 err_del_in:
     cdev_del(&cdev_in);
 err_del_out:
@@ -205,6 +218,7 @@ static void __exit keycipher_exit(void)
     proc_stats_exit();
     cdev_del(&cdev_in);
     cdev_del(&cdev_out);
+    cdev_del(&cdev_chatroom); 
     unregister_chrdev_region(dev_base, NUM_DEVS);
     printk(KERN_INFO "KeyCipher: unloaded\n");
 }

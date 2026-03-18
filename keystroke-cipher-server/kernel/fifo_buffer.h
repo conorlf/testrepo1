@@ -5,6 +5,8 @@
 #include <linux/mutex.h>
 #include "keycipher.h"
 
+
+
 struct fifo_buffer {
     char messages[FIFO_SIZE][MSG_MAX_LEN];
     struct keycipher_message messages[FIFO_SIZE];
@@ -24,5 +26,6 @@ int  fifo_count(struct fifo_buffer *fifo);
 
 extern struct fifo_buffer inbox_fifo;
 extern struct fifo_buffer outbox_fifo;
+extern struct fifo_buffer chatroom_fifo;
 
 #endif
