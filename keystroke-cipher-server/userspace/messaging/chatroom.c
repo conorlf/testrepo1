@@ -31,7 +31,9 @@ int chatroom_send(const char *plaintext)
 {
     kernel_msg_t msg;
     kernel_msg_t encrypted;
-    int dev_fd, ret, bytes;
+    int dev_fd;
+    int ret;
+    int bytes;
 
     if (!plaintext) return -1;
 
@@ -44,28 +46,28 @@ int chatroom_send(const char *plaintext)
     // write to kernel - kernel encrypts it 
     dev_fd = open(DEVICE_OUT, O_WRONLY);
     if (dev_fd < 0) {
-        perror("chatroom_send: cannot open device");
+        perror("chatroom_send: Cannot open device");
         return -1;
     }
 
     ret = write(dev_fd, &msg, sizeof(msg));
     close(dev_fd);
     if (ret < 0) {
-        perror("chatroom_send: write failed");
+        perror("chatroom_send: Write failed");
         return -1;
     }
 
     // read encrypted result back 
     dev_fd = open(DEVICE_OUT, O_RDONLY);
     if (dev_fd < 0) {
-        perror("chatroom_send: cannot read encrypted");
+        perror("chatroom_send: Cannot read encrypted");
         return -1;
     }
 
     bytes = read(dev_fd, &encrypted, sizeof(encrypted));
     close(dev_fd);
     if (bytes < 0) {
-        perror("chatroom_send: read encrypted failed");
+        perror("chatroom_send: Read encrypted failed");
         return -1;
     }
 
@@ -90,7 +92,7 @@ int chatroom_receive(const char *encrypted_msg, const char *sender_ip)
     //returns immediately if full instead of blocking
     dev_fd = open(DEVICE_CHATROOM, O_WRONLY | O_NONBLOCK);
     if (dev_fd < 0) {
-        perror("chatroom_receive: cannot open device");
+        perror("chatroom_receive: Cannot open device");
         return -1;
     }
 
@@ -102,7 +104,7 @@ int chatroom_receive(const char *encrypted_msg, const char *sender_ip)
         return -ENOBUFS;
     }
 
-    printf("chatroom_receive: message stored from %s\n", sender_ip);
+    printf("chatroom_receive: Message stored from %s\n", sender_ip);
     return 0;
 }
 
@@ -118,7 +120,33 @@ int chatroom_receive(const char *encrypted_msg, const char *sender_ip)
  */
 void *chatroom_read_loop(void *arg)
 {
-    /* TODO: implement chatroom read loop */
+    kernel_msg_t msg;
+    int dev_fd;
+    int bytes;
+
+    dev_fd = open(DEVICE_CHATROOM, O_RDONLY);
+    if (dev_fd < 0) {
+        perror("chatroom_read_loop: Cannot open device");
+        return NULL;
+    }
+
+    printf("chatroom_read_loop: Started, waiting for messages\n");
+    while (1) {
+        /* blocks here until chatroom FIFO has a message
+           kernel wakes this thread via semaphore up()
+           kernel decrypts before returning               */
+           bytes = read(dev_fd, &msg, sizeof(msg));
+           if (bytes < 0) {
+            perror("chatroom_read_loop: Read error");
+            break;
+           }
+           if (bytes == 0) continue;
+
+           //slot freed
+           printf("CHATROOM (%s): %.*s\n", msg.author, msg.len, msg.data);
+    }
+    
+    close(dev_fd);
     return NULL;
 }
 
