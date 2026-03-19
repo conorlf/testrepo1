@@ -68,6 +68,14 @@ peer_t *peer_get_all(int *count){
     return peers; //returns peer list
 }
 
+peer_t *peer_manager_get_all(void) {
+    return peers;
+}
+
+int peer_manager_count(void) {
+    return peer_count;
+}
+
 /*loops through all loaded peers
 attempt a TCP connection to each
 update socket_fd and status accordingly

@@ -21,6 +21,14 @@ user_msg_t *direct_get_messages(void) {
     return inbox;
 }
 
+user_msg_t *direct_find_message_by_id(int id) {
+    for (int i = 0; i < inbox_count; i++) {
+        if (inbox[i].id == id)
+            return &inbox[i];
+    }
+    return NULL;
+}
+
 /*
  * direct_send - write plaintext to /dev/keycipher_out
  * - open("/dev/keycipher_out", O_WRONLY)

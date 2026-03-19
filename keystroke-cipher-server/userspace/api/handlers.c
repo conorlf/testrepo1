@@ -1,9 +1,15 @@
 #include <stdio.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
 #include "handlers.h"
 #include "../messaging/chatroom.h"
 #include "../messaging/direct.h"
 #include "../network/peer_manager.h"
+
+#define KEYCIPHER_MAGIC   'K'
+#define KEYCIPHER_FLUSH_IN _IO(KEYCIPHER_MAGIC, 2)
 
 /*
  * handle_get_stats - return JSON with current system state

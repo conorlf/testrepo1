@@ -2,6 +2,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/ioctl.h>
 #include "chatroom.h"
 #include "../network/client.h"
@@ -9,7 +10,7 @@
 
 static chat_msg_t chat_inbox[MAX_CHAT_MESSAGES];
 static int chat_inbox_count = 0;
-static int next_chat_id = 1;*/
+static int next_chat_id = 1;
 
 int chatroom_get_message_count(void) {
     return chat_inbox_count;
@@ -17,7 +18,7 @@ int chatroom_get_message_count(void) {
 
 chat_msg_t *chatroom_get_messages(void) {
     return chat_inbox;
-}*/
+}
 
 #define DEVICE_OUT       "/dev/keycipher_out"
 #define DEVICE_CHATROOM  "/dev/keycipher_chatroom"

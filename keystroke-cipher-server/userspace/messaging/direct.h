@@ -3,6 +3,8 @@
 
 #include "../network/peer_manager.h"
 
+#define MAX_MESSAGES 64
+
 /*
  * direct_send - send an encrypted direct message to one peer
  * - read raw text from /dev/keycipher_out (already encrypted by kernel)
@@ -45,5 +47,6 @@ typedef struct {
 
 int direct_get_message_count(void);
 user_msg_t *direct_get_messages(void);
+user_msg_t *direct_find_message_by_id(int id);
 
 #endif /* DIRECT_H */

@@ -1,6 +1,8 @@
 #ifndef CHATROOM_H
 #define CHATROOM_H
 
+#define MAX_CHAT_MESSAGES 64
+
 //Userspace msg struct
 typedef struct {
     int id;
