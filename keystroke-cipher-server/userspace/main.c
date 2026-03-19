@@ -18,7 +18,7 @@
 
   int main(int argc, char *argv[])
   {
-      pthread_t direct_thread, chatroom_thread, send_thread;
+      pthread_t chatroom_thread, send_thread;
 
       printf("KeyCipher daemon starting...\n");
 
@@ -51,9 +51,7 @@
       pthread_create(&send_thread, NULL, direct_send_loop, NULL);
       pthread_detach(send_thread);
 
-      //thread: blocking reads from /dev/keycipher_in (used by inbox_terminal, not here)
-      pthread_create(&direct_thread, NULL, direct_receive_loop, NULL);
-      pthread_detach(direct_thread);
+      //inbox is handled by inbox_terminal — do not drain /dev/keycipher_in here
 
       //thread: blocking reads from chatroom FIFO
       pthread_create(&chatroom_thread, NULL, chatroom_read_loop, NULL);
