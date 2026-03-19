@@ -10,6 +10,7 @@
 #include <arpa/inet.h>       //inet()
 #include "server.h"
 #include "../messaging/chatroom.h"
+#include "../messaging/direct.h"
 #include <fcntl.h>
 
 
@@ -20,6 +21,7 @@ static SSL_CTX *ssl_ctx;
 static pthread_t accept_thread;
 
 #define DEVICE_PATH "/dev/keycipher_in"
+#define ENC_QUEUE   "/tmp/keycipher_enc_queue"
 
 //Helpers for server_handle_connection
 /*
@@ -267,6 +269,24 @@ void *server_handle_connection(void *arg)
     if (atoi(is_chatroom)) {
         ret = chatroom_receive(body, sender_ip);
     } else {
+        if (msg_len >= (int)sizeof(kernel_msg_t)) {
+            kernel_msg_t *kmsg = (kernel_msg_t *)body;
+
+            /* Inject sender IP into author field */
+            strncpy(kmsg->author, sender_ip, sizeof(kmsg->author) - 1);
+            kmsg->author[sizeof(kmsg->author) - 1] = '\0';
+
+            /* Save encrypted data to queue file before kernel decrypts it */
+            FILE *enc_f = fopen(ENC_QUEUE, "ab");
+            if (enc_f) {
+                char enc_record[256] = {0};
+                int enc_len = kmsg->len > 0 && kmsg->len < 256 ? kmsg->len : 0;
+                memcpy(enc_record, kmsg->data, enc_len);
+                fwrite(enc_record, 256, 1, enc_f);
+                fclose(enc_f);
+            }
+        }
+
         int dev_fd = open(DEVICE_PATH, O_WRONLY | O_NONBLOCK);
         if (dev_fd < 0) {
             perror("KeyCipher: failed to open device");

@@ -16,9 +16,11 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <time.h>
 
 #define DEVICE_IN    "/dev/keycipher_in"
 #define PROC_STATS   "/proc/keycipher/stats"
+#define ENC_QUEUE    "/tmp/keycipher_enc_queue"
 
 /* Must match kernel/keycipher.h struct keycipher_message layout */
 typedef struct {
@@ -54,6 +56,10 @@ int main(void)
         return 1;
     }
 
+    FILE *enc_f = fopen(ENC_QUEUE, "rb");
+    if (!enc_f)
+        fprintf(stderr, "[inbox] warning: could not open %s — encrypted field will be empty\n", ENC_QUEUE);
+
     printf("┌─────────────────────────────────────┐\n");
     printf("│        KeyCipher — Inbox            │\n");
     printf("│  Press Enter to decrypt next msg    │\n");
@@ -76,6 +82,11 @@ int main(void)
             continue;
         }
 
+        /* Read matching encrypted record from queue file */
+        char enc_buf[256] = {0};
+        if (enc_f)
+            fread(enc_buf, 256, 1, enc_f);
+
         /* Pop front message — kernel decrypts on read */
         inbox_msg_t msg;
         int bytes = read(dev_fd, &msg, sizeof(msg));
@@ -90,13 +101,22 @@ int main(void)
 
         int dlen = msg.len > 0 && msg.len < 256 ? msg.len : 0;
 
+        /* Format timestamp as HH:MM:SS */
+        char timebuf[16] = "unknown";
+        time_t t = (time_t)msg.tv_sec;
+        struct tm *tm_info = localtime(&t);
+        if (tm_info)
+            strftime(timebuf, sizeof(timebuf), "%H:%M:%S", tm_info);
+
         printf("\n┌─── Message ───────────────────────────\n");
         printf("│ From      : %.64s\n", msg.author[0] ? msg.author : "unknown");
-        printf("│ Received  : %lld\n",  msg.tv_sec);
+        printf("│ Time      : %s\n",    timebuf);
+        printf("│ Encrypted : %.*s\n",  dlen, enc_buf);
         printf("│ Plaintext : %.*s\n",  dlen, msg.data);
         printf("└───────────────────────────────────────\n\n");
     }
 
+    if (enc_f) fclose(enc_f);
     close(dev_fd);
     return 0;
 }
