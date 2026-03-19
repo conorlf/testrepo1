@@ -3,14 +3,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "Run as: (1) Sender  (2) Receiver"
-read -p "Choice: " choice
-
 # Kill any existing daemon and free the port
 sudo pkill -f keycipher_daemon 2>/dev/null || true
 sleep 1
 
-# Reload kernel module cleanly to clear stale FIFOs
+# Reload kernel module cleanly
 cd "$SCRIPT_DIR/kernel"
 make -s
 sudo rmmod keycipher_mod 2>/dev/null || true
@@ -34,17 +31,21 @@ sudo chmod 666 /dev/keycipher_out /dev/keycipher_in
 cd "$SCRIPT_DIR/userspace"
 make -s
 
-cd "$SCRIPT_DIR/userspace/network"
-
-if [ "$choice" = "1" ]; then
-    echo "Starting sender daemon..."
-    sudo "$SCRIPT_DIR/userspace/keycipher_daemon"
-elif [ "$choice" = "2" ]; then
-    rm -f /tmp/keycipher_enc_queue
-    echo "Starting receiver daemon (Terminal 1)..."
-    echo "Open a second terminal and run: cd $SCRIPT_DIR/userspace/network && sudo $SCRIPT_DIR/userspace/inbox_terminal"
-    sudo "$SCRIPT_DIR/userspace/keycipher_daemon"
-else
-    echo "Invalid choice"
-    exit 1
+# Generate TLS certs if missing
+if [ ! -f "$SCRIPT_DIR/userspace/cert.pem" ] || [ ! -f "$SCRIPT_DIR/userspace/key.pem" ]; then
+    echo "Generating TLS certificates..."
+    openssl req -x509 -newkey rsa:2048 -keyout "$SCRIPT_DIR/userspace/key.pem" \
+        -out "$SCRIPT_DIR/userspace/cert.pem" -days 365 -nodes -subj "/CN=keycipher" 2>/dev/null
 fi
+
+# Start daemon
+echo "Starting daemon..."
+"$SCRIPT_DIR/userspace/keycipher_daemon" &
+
+# Install and start frontend
+cd "$SCRIPT_DIR/web"
+npm install --silent
+echo "Starting frontend on http://localhost:3001"
+node server.js &
+
+echo "[✓] KeyCipher running. Open http://localhost:3001 in your browser."
