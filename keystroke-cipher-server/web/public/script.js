@@ -1,33 +1,20 @@
-// ★ NEW — connect to Node.js backend
 const socket = io("http://localhost:3001");
 
-// Your existing DOM references
 const sendBtn = document.getElementById("sendBtn");
 const textInput = document.getElementById("textInput");
 const messages = document.getElementById("messages");
-const roomItems = document.querySelectorAll(".room.item");
 const peerContainer = document.getElementById("peerContainer");
 const chatTitle = document.getElementById("chatTitle");
-
-// Your existing roomData stays for UI fallback
-const roomData = {
-  "global-chat": {
-    title: "Global Chat",
-    messages: ["Welcome to global chat.", "Feel free to send a message."],
-    peers: [
-      { name: "peer-1", ip: "192.168.1.45", last: "2m ago" },
-      { name: "peer-2", ip: "192.168.1.81", last: "10m ago" },
-    ],
-  },
-  // ... your other rooms unchanged ...
-};
+const roomList = document.querySelector(".peers");
+const topPeers = document.getElementById("topPeers");
+const topIP = document.getElementById("topIP");
+const topID = document.getElementById("topID");
 
 let currentRoom = "global-chat";
 
-/* ─────────────────────────────────────────────── */
-/* ★ NEW — Load real chatroom messages from backend */
-/* ─────────────────────────────────────────────── */
-
+/* -------------------------------
+   Load chatroom messages
+--------------------------------*/
 async function loadChatroomFromBackend() {
   try {
     const res = await fetch("/api/chatroom");
@@ -38,67 +25,120 @@ async function loadChatroomFromBackend() {
     data.messages.forEach(msg => {
       const div = document.createElement("div");
       div.className = msg.from_me ? "message from-me" : "message from-them";
-      div.textContent = msg.text;
+      div.textContent = msg.encrypted_preview;
       messages.appendChild(div);
     });
 
     messages.scrollTop = messages.scrollHeight;
   } catch (err) {
-    console.warn("Backend not available, using local mock data.");
+    console.warn("Backend not available.");
   }
 }
 
-/* ─────────────────────────────────────────────── */
-/* Your existing room switching logic stays         */
-/* ─────────────────────────────────────────────── */
+/* -------------------------------
+   Load peers into left + right sidebar
+--------------------------------*/
+async function loadPeers() {
+  try {
+    const res = await fetch("/api/peers");
+    const peers = await res.json();
 
+    // Left sidebar (rooms)
+    const staticRoom = document.querySelector("[data-room='global-chat']");
+    roomList.innerHTML = "";
+    roomList.appendChild(staticRoom);
+
+    peers.forEach(p => {
+      const div = document.createElement("div");
+      div.className = "room item";
+      div.dataset.room = p.ip;
+      div.textContent = p.ip;
+      div.addEventListener("click", () => setSelectedRoom(p.ip));
+      roomList.appendChild(div);
+    });
+
+    // Right sidebar (peer info)
+    peerContainer.innerHTML = "";
+    peers.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "peer-card";
+      card.innerHTML = `
+        <div class="peer-name">${p.ip}</div>
+        <div class="peer-ip">IP: ${p.ip}</div>
+        <div class="peer-last">Online</div>`;
+      peerContainer.appendChild(card);
+    });
+
+    // Update top bar
+    topPeers.textContent = peers.length;
+  } catch (err) {
+    console.warn("Could not load peers");
+  }
+}
+
+/* -------------------------------
+   Load top bar stats
+--------------------------------*/
+async function loadStats() {
+  try {
+    const res = await fetch("/api/stats");
+    const stats = await res.json();
+
+    topIP.textContent = stats.my_ip;
+    topID.textContent = stats.my_id;
+  } catch (err) {
+    console.warn("Stats unavailable");
+  }
+}
+
+/* -------------------------------
+   Room switching logic
+--------------------------------*/
 function setSelectedRoom(roomId) {
   currentRoom = roomId;
-  roomItems.forEach((item) => {
+
+  // Highlight selected room
+  document.querySelectorAll(".room.item").forEach(item => {
     item.classList.toggle("selected", item.dataset.room === roomId);
   });
 
-  const room = roomData[roomId] || { title: roomId, messages: [], peers: [] };
-  chatTitle.textContent = room.title;
+  chatTitle.textContent = roomId === "global-chat" ? "Global Chat" : roomId;
 
   messages.innerHTML = "";
-  room.messages.forEach((text, i) => {
-    const div = document.createElement("div");
-    div.className = i % 2 === 0 ? "message from-them" : "message from-me";
-    div.textContent = text;
-    messages.appendChild(div);
-  });
 
-  messages.scrollTop = messages.scrollHeight;
-
-  peerContainer.innerHTML = "";
-  room.peers.forEach((peer) => {
-    const card = document.createElement("div");
-    card.className = "peer-card";
-    card.innerHTML = `
-      <div class="peer-name">${peer.name}</div>
-      <div class="peer-ip">IP: ${peer.ip}</div>
-      <div class="peer-last">Last online: ${peer.last}</div>`;
-    peerContainer.appendChild(card);
-  });
-
-  // ★ NEW — load real messages when entering global chat
   if (roomId === "global-chat") {
     loadChatroomFromBackend();
+  } else {
+    loadDirectMessages(roomId);
   }
 }
 
-roomItems.forEach((room) => {
-  room.addEventListener("click", () => {
-    const roomId = room.dataset.room;
-    if (roomId) setSelectedRoom(roomId);
-  });
-});
+/* -------------------------------
+   Load direct messages for a peer
+--------------------------------*/
+async function loadDirectMessages(peerIp) {
+  try {
+    const res = await fetch(`/api/messages/${peerIp}`);
+    const data = await res.json();
 
-/* ─────────────────────────────────────────────── */
-/* Your existing bubble creation stays              */
-/* ─────────────────────────────────────────────── */
+    messages.innerHTML = "";
 
+    data.messages.forEach(msg => {
+      const div = document.createElement("div");
+      div.className = msg.from_me ? "message from-me" : "message from-them";
+      div.textContent = msg.encrypted_preview;
+      messages.appendChild(div);
+    });
+
+    messages.scrollTop = messages.scrollHeight;
+  } catch (err) {
+    console.warn("Could not load direct messages");
+  }
+}
+
+/* -------------------------------
+   Append bubble to UI
+--------------------------------*/
 function appendBubble(text, fromMe = true) {
   if (!text.trim()) return;
   const msg = document.createElement("div");
@@ -108,10 +148,9 @@ function appendBubble(text, fromMe = true) {
   messages.scrollTop = messages.scrollHeight;
 }
 
-/* ─────────────────────────────────────────────── */
-/* ★ NEW — Send message to backend                 */
-/* ─────────────────────────────────────────────── */
-
+/* -------------------------------
+   Send chatroom message
+--------------------------------*/
 async function sendToBackend(text) {
   await fetch("/api/send/chatroom", {
     method: "POST",
@@ -120,20 +159,22 @@ async function sendToBackend(text) {
   });
 }
 
-/* ─────────────────────────────────────────────── */
-/* Modified send button logic                      */
-/* ─────────────────────────────────────────────── */
-
+/* -------------------------------
+   Send button
+--------------------------------*/
 sendBtn.addEventListener("click", () => {
   const text = textInput.value;
   if (!text.trim()) return;
 
-  appendBubble(text, true); // local UI
-  sendToBackend(text);      // ★ NEW — send to Node.js
+  appendBubble(text, true);
+  sendToBackend(text);
 
   textInput.value = "";
 });
 
+/* -------------------------------
+   Enter key
+--------------------------------*/
 textInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
     e.preventDefault();
@@ -141,14 +182,21 @@ textInput.addEventListener("keydown", (e) => {
   }
 });
 
-/* ─────────────────────────────────────────────── */
-/* ★ NEW — Receive messages from backend           */
-/* ─────────────────────────────────────────────── */
-
+/* -------------------------------
+   Receive chatroom message
+--------------------------------*/
 socket.on("chatroom_message", data => {
-  appendBubble(data.encrypted_preview, false);
+  if (currentRoom === "global-chat") {
+    appendBubble(data.encrypted_preview, false);
+  }
 });
 
-/* ─────────────────────────────────────────────── */
+/* -------------------------------
+   Initial load
+--------------------------------*/
+loadPeers();
+loadStats();
+setInterval(loadPeers, 1500);
+setInterval(loadStats, 1500);
 
 setSelectedRoom(currentRoom);

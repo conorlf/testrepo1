@@ -11,7 +11,6 @@ static chat_msg_t chat_inbox[MAX_CHAT_MESSAGES];
 static int chat_inbox_count = 0;
 static int next_chat_id = 1;*/
 
-//TODO: also these getter funcs
 int chatroom_get_message_count(void) {
     return chat_inbox_count;
 }

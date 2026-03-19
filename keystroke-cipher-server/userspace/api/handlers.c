@@ -364,11 +364,58 @@ void handle_read_all(int client_fd) {
  * - return JSON: { status, encrypted_preview }
  */
 void handle_send_direct(int client_fd, const char *body){
-    //TODO: body contains raw JSON from Node.js, parse it here
+    char target_ip[64] = {0};
+    char message[256] = {0};
 
-    char json[256];
+    //parse JSON body
+    char *ip_ptr = strstr(body, "\"target_ip\"");
+    char *msg_ptr = strstr(body, "\"message\"");
+
+    if (!ip_ptr || !msg_ptr) {
+        dprintf(client_fd,
+            "HTTP/1.1 400 Bad Request\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            "{ \"error\": \"Invalid JSON\" }");
+        return;
+    }
+
+    sscanf(ip_ptr, "\"target_ip\"%*[^:\"]: \"%63[^\"]\"", target_ip);
+    sscanf(msg_ptr, "\"message\"%*[^:\"]: \"%255[^\"]\"", message);
+
+    //find peer from peers
+    peer_t *peers = peer_manager_get_all();
+    int peer_count = peer_manager_count();
+    peer_t *target = NULL;
+
+    for (int i = 0; i < peer_count; i++) {
+        if (strcmp(peers[i].ip, target_ip) == 0) {
+            target = &peers[i];
+            break;
+        }
+    }
+
+    if (!target) {
+        dprintf(client_fd,
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            "{ \"error\": \"Peer not found\" }");
+        return;
+    }
+
+    //send message
+    int ret = direct_send(target, message);
+    if (ret < 0) {
+        dprintf(client_fd,
+            "HTTP/1.1 500 Internal Server Error\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            "{ \"error\": \"Send failed\" }");
+        return;
+    }
+
+    //build JSON
+    char json[512];
     snprintf(json, sizeof(json),
-        "{ \"status\": \"sent\", \"preview\": \"encrypted...\" }"
+        "{ \"status\": \"sent\", \"encrypted_preview\": \"encrypted...\" }"
     );
 
     dprintf(client_fd,
@@ -378,8 +425,6 @@ void handle_send_direct(int client_fd, const char *body){
         "%s",
         strlen(json), json
     );
-
-    /* TODO: implement direct send handler */
 }
 
 /*
@@ -388,7 +433,48 @@ void handle_send_direct(int client_fd, const char *body){
  * - call chatroom_send(message)
  * - return JSON: { status, encrypted_preview, peers_notified }
  */
-void handle_send_chatroom(int client_fd, const char *body)
-{
-    /* TODO: implement chatroom send handler */
+void handle_send_chatroom(int client_fd, const char *body) {
+    char message[256] = {0};
+
+    //parse JSON
+    char *msg_ptr = strstr(body, "\"message\"");
+    if (!msg_ptr) {
+        dprintf(client_fd,
+            "HTTP/1.1 400 Bad Request\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            "{ \"error\": \"Invalid JSON\" }");
+        return;
+    }
+
+    sscanf(msg_ptr, "\"message\"%*[^:\"]: \"%255[^\"]\"", message);
+
+    //send chatroom message
+    int ret = chatroom_send(message);
+    if (ret < 0) {
+        dprintf(client_fd,
+            "HTTP/1.1 500 Internal Server Error\r\n"
+            "Content-Type: application/json\r\n\r\n"
+            "{ \"error\": \"Chatroom send failed\" }");
+        return;
+    }
+
+    //count peers notified (all connected peers)
+    int peers_notified = peer_manager_count();
+
+    //build JSON
+    char json[512];
+    snprintf(json, sizeof(json),
+        "{ \"status\": \"sent\", "
+        "\"encrypted_preview\": \"encrypted...\", "
+        "\"peers_notified\": %d }",
+        peers_notified
+    );
+
+    dprintf(client_fd,
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %zu\r\n\r\n"
+        "%s",
+        strlen(json), json
+    );
 }
