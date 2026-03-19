@@ -1,6 +1,6 @@
 obj-m += keycipher.o
 
-keycipher-objs := keycipher.c input_intercept.c fifo_buffer.c proc_stats.c cipher.c typing_stack.c
+keycipher-objs := keycipher.o input_intercept.o fifo_buffer.o proc_stats.o cipher.o typing_stack.o
 
 all:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
