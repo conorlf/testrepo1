@@ -18,6 +18,15 @@ echo "[*] Setting permissions..."
 sudo chmod 666 /dev/keycipher_in
 sudo chmod 666 /dev/keycipher_out
 
+echo "[*] Generating TLS certificates if missing..."
+if [ ! -f ../userspace/cert.pem ] || [ ! -f ../userspace/key.pem ]; then
+    openssl req -x509 -newkey rsa:2048 -keyout ../userspace/key.pem -out ../userspace/cert.pem \
+        -days 365 -nodes -subj "/CN=keycipher" 2>/dev/null
+    echo "[✓] Certificates generated."
+else
+    echo "[✓] Certificates already exist."
+fi
+
 echo "[*] Starting userspace daemon..."
 ../userspace/keycipher_daemon &
 
