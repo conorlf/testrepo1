@@ -6,6 +6,20 @@
 #include "chatroom.h"
 #include "../network/client.h"
 
+
+static chat_msg_t chat_inbox[MAX_CHAT_MESSAGES];
+static int chat_inbox_count = 0;
+static int next_chat_id = 1;*/
+
+//TODO: also these getter funcs
+int chatroom_get_message_count(void) {
+    return chat_inbox_count;
+}
+
+chat_msg_t *chatroom_get_messages(void) {
+    return chat_inbox;
+}*/
+
 #define DEVICE_OUT       "/dev/keycipher_out"
 #define DEVICE_CHATROOM  "/dev/keycipher_chatroom"
 #define PROC_STATS       "/proc/keycipher/stats"

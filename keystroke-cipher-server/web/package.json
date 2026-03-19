@@ -1,7 +1,7 @@
 {
   "name": "keycipher-bridge",
   "version": "1.0.0",
-  "description": "Node.js bridge between React frontend and C backend",
+  "description": "Node.js bridge between frontend and C backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

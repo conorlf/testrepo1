@@ -9,14 +9,17 @@
 #define DEVICE_OUT "/dev/keycipher_out"
 #define DEVICE_IN "/dev/keycipher_in"
 
-//Kernel message struct 
-typedef struct {
-    long long tv_sec;
-    long tv_nsec;
-    char author[64];
-    char data[256];
-    int len;
-} kernel_msg_t;
+static user_msg_t inbox[MAX_MESSAGES];
+static int inbox_count = 0;
+static int next_id = 1;
+
+int direct_get_message_count(void) {
+    return inbox_count;
+}
+
+user_msg_t *direct_get_messages(void) {
+    return inbox;
+}
 
 /*
  * direct_send - write plaintext to /dev/keycipher_out
@@ -98,6 +101,15 @@ void *direct_receive_loop(void *arg)
         if (bytes == 0) continue;
 
         printf("%s: %.*s\n", msg.author, msg.len, msg.data);
+
+        if (inbox_count < MAX_MESSAGES) {
+            inbox[inbox_count].id = next_id++;
+            strncpy(inbox[inbox_count].sender, msg.author, 63);
+            inbox[inbox_count].timestamp = msg.tv_sec;
+            strncpy(inbox[inbox_count].encrypted_preview, msg.data, 255);
+            inbox_count++;
+        }
+    
     }
 
     close(dev_fd);
