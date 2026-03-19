@@ -42,10 +42,5 @@ fi
 echo "Starting daemon..."
 "$SCRIPT_DIR/userspace/keycipher_daemon" &
 
-# Install and start frontend
-cd "$SCRIPT_DIR/web"
-npm install --silent
-echo "Starting frontend on http://localhost:3001"
-node server.js &
-
-echo "[✓] KeyCipher running. Open http://localhost:3001 in your browser."
+echo "[✓] KeyCipher daemon running."
+echo "[*] To start the frontend: cd web && node server.js"
