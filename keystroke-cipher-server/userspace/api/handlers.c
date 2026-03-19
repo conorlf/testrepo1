@@ -290,8 +290,8 @@ void handle_read_one(int client_fd, const char *message_id) {
  * - all blocked remote peers unblock simultaneously
  * - return JSON array of all decrypted messages
  */
-void handle_read_all(int client_fd) { //TODO: REVIEW CODE
-    // 1. Open device
+void handle_read_all(int client_fd) {
+    //open device
     int fd = open("/dev/keycipher_in", O_RDONLY);
     if (fd < 0) {
         perror("handle_read_all: open");
@@ -299,7 +299,7 @@ void handle_read_all(int client_fd) { //TODO: REVIEW CODE
         return;
     }
 
-    // 2. Trigger flush ioctl
+    //trigger flush ioctl
     if (ioctl(fd, KEYCIPHER_FLUSH_IN) < 0) {
         perror("handle_read_all: ioctl");
         close(fd);
@@ -307,7 +307,7 @@ void handle_read_all(int client_fd) { //TODO: REVIEW CODE
         return;
     }
 
-    // 3. Read all decrypted messages
+    //read all decrypted messages
     kernel_msg_t msgs[64];   // adjust to your FIFO capacity
     int bytes = read(fd, msgs, sizeof(msgs));
     close(fd);
@@ -320,7 +320,7 @@ void handle_read_all(int client_fd) { //TODO: REVIEW CODE
 
     int msg_count = bytes / sizeof(kernel_msg_t);
 
-    // 4. Build JSON array
+    //build JSON
     char json[8192];
     json[0] = '\0';
     strcat(json, "[");
@@ -333,7 +333,7 @@ void handle_read_all(int client_fd) { //TODO: REVIEW CODE
              "\"sender\": \"%s\","
              "\"timestamp\": %lld,"
              "\"plaintext\": \"%.*s\"}",
-            i + 1,                       // or match to userspace IDs
+            i + 1, // or match to userspace IDs?
             msgs[i].author,
             msgs[i].tv_sec,
             msgs[i].len,
@@ -347,7 +347,6 @@ void handle_read_all(int client_fd) { //TODO: REVIEW CODE
 
     strcat(json, "]");
 
-    // 5. Send HTTP response
     dprintf(client_fd,
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/json\r\n"
