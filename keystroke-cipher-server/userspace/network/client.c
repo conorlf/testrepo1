@@ -3,14 +3,19 @@
 #include <unistd.h>
 #include "client.h"
 #include "peer_manager.h"
-
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 /*
  * client_connect - TCP + SSL handshake to peer
  * - socket(AF_INET, SOCK_STREAM, 0)
  * - connect() to peer->ip:peer->port
  * - SSL_new, SSL_set_fd, SSL_connect
  * - on success: peer->status = PEER_CONNECTED
- * - on failure: peer->status = PEER_DISCONNECTED, return -1
+ * - on failure: peer->status = PEER_OFFLINE, return -1
  */
 int client_connect(peer_t *peer)
 {
@@ -18,7 +23,7 @@ int client_connect(peer_t *peer)
 
     peer->socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (peer->socket_fd < 0) {
-        peer->status = PEER_DISCONNECTED;
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
@@ -28,13 +33,13 @@ int client_connect(peer_t *peer)
 
     if (inet_pton(AF_INET, peer->ip, &addr.sin_addr) <= 0) {
         close(peer->socket_fd);
-        peer->status = PEER_DISCONNECTED;
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
     if (connect(peer->socket_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         close(peer->socket_fd);
-        peer->status = PEER_DISCONNECTED;
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
@@ -42,7 +47,16 @@ int client_connect(peer_t *peer)
     peer->ctx = SSL_CTX_new(TLS_client_method());
     if (!peer->ctx) {
         close(peer->socket_fd);
-        peer->status = PEER_DISCONNECTED;
+        peer->status = PEER_OFFLINE;
+        return -1;
+    }
+
+    peer->ssl = SSL_new(peer->ctx);
+    SSL_set_fd(peer->ssl, peer->socket_fd);
+    if (SSL_connect(peer->ssl) <= 0) {
+        ERR_print_errors_fp(stderr);
+        close(peer->socket_fd);
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
@@ -57,37 +71,49 @@ int client_connect(peer_t *peer)
  * - read response code from SSL_read
  * - if 429: set PEER_BLOCKED, sleep and retry (backpressure)
  * - if 200: set PEER_CONNECTED (unblocked), return 0
- * - if 503: set PEER_DISCONNECTED, return -1
+ * - if 503: set PEER_OFFLINE, return -1
  */
-int client_send_message(peer_t *peer, const char *encrypted_msg, int is_chatroom)
+int client_send_message(peer_t *peer, const char *encrypted_msg, size_t msg_len, int is_chatroom)
 {
     if (peer->status != PEER_CONNECTED)
         return -1;
 
-    char request[4096];
-    int body_len = strlen(encrypted_msg);
+    // Get our local IP so the receiver knows who sent this
+    struct sockaddr_in local_addr;
+    socklen_t local_len = sizeof(local_addr);
+    char local_ip[64] = "0.0.0.0";
+    if (getsockname(peer->socket_fd, (struct sockaddr *)&local_addr, &local_len) == 0)
+        inet_ntop(AF_INET, &local_addr.sin_addr, local_ip, sizeof(local_ip));
 
-    snprintf(request, sizeof(request),
+    // Headers only — binary body is sent in a separate SSL_write below
+    char headers[512];
+    int hdr_len = snprintf(headers, sizeof(headers),
         "POST /message HTTP/1.1\r\n"
         "Host: %s\r\n"
         "Content-Type: application/octet-stream\r\n"
-        "Content-Length: %d\r\n"
+        "Content-Length: %zu\r\n"
         "X-Chatroom: %d\r\n"
-        "\r\n"
-        "%s",
-        peer->ip, body_len, is_chatroom, encrypted_msg
+        "X-Sender-IP: %s\r\n"
+        "\r\n",
+        peer->ip, msg_len, is_chatroom, local_ip
     );
 
 retry_send:
-    if (SSL_write(peer->ssl, request, strlen(request)) <= 0) {
-        peer->status = PEER_DISCONNECTED;
+    if (SSL_write(peer->ssl, headers, hdr_len) <= 0) {
+        peer->status = PEER_OFFLINE;
+        return -1;
+    }
+
+    // Send the binary struct directly — no string conversion
+    if (SSL_write(peer->ssl, encrypted_msg, (int)msg_len) <= 0) {
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
     char response[2048];
     int n = SSL_read(peer->ssl, response, sizeof(response) - 1);
     if (n <= 0) {
-        peer->status = PEER_DISCONNECTED;
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
@@ -108,7 +134,7 @@ retry_send:
     }
 
     if (code == 503) {
-        peer->status = PEER_DISCONNECTED;
+        peer->status = PEER_OFFLINE;
         return -1;
     }
 
@@ -123,14 +149,13 @@ retry_send:
  * NOTE: each peer has its own thread so blocking on one peer
  *       does not block delivery to other peers
  */
-void client_broadcast(const char *encrypted_msg, int is_chatroom)
+void client_broadcast(const char *encrypted_msg, size_t msg_len, int is_chatroom)
 {
-    for (int i = 0; i < MAX_PEERS; i++) {
-        peer_t *p = &peers[i];
-
-        if (p->status == PEER_CONNECTED) {
-            client_send_message(p, encrypted_msg, is_chatroom);
-        }
+    int count;
+    peer_t *peers = peer_get_all(&count);
+    for (int i = 0; i < count; i++) {
+        if (peers[i].status == PEER_CONNECTED)
+            client_send_message(&peers[i], encrypted_msg, msg_len, is_chatroom);
     }
 }
 
@@ -167,7 +192,7 @@ void *client_connect_thread(void *arg)
  * - SSL_shutdown(peer->ssl)
  * - SSL_free(peer->ssl)
  * - close(peer->socket_fd)
- * - peer->status = PEER_DISCONNECTED
+ * - peer->status = PEER_OFFLINE
  */
 void client_disconnect(peer_t *peer)
 {
@@ -182,6 +207,6 @@ void client_disconnect(peer_t *peer)
     if (peer->socket_fd > 0)
         close(peer->socket_fd);
 
-    peer->status = PEER_DISCONNECTED;
+    peer->status = PEER_OFFLINE;
 }
 

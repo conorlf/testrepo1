@@ -67,7 +67,7 @@ int direct_send(peer_t *peer, const char *plaintext)
     }
 
     //Hand over to client in network
-    return client_send_message(peer, (const char*)&encrypted, 0);
+    return client_send_message(peer, (const char*)&encrypted, sizeof(encrypted), 0);
 }
 
 /*

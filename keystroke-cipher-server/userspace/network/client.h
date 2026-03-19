@@ -25,7 +25,7 @@ int client_connect(peer_t *peer);
  * - if response is HTTP 200: message accepted
  * returns 0 on success, -1 on error
  */
-int client_send_message(peer_t *peer, const char *encrypted_msg, int is_chatroom);
+int client_send_message(peer_t *peer, const char *encrypted_msg, size_t msg_len, int is_chatroom);
 
 /*
  * client_broadcast - send a message to all connected peers
@@ -35,7 +35,7 @@ int client_send_message(peer_t *peer, const char *encrypted_msg, int is_chatroom
  * - if any peer is PEER_BLOCKED, that peer's thread blocks independently
  *   so other peers still receive the message (non-blocking broadcast)
  */
-void client_broadcast(const char *encrypted_msg, int is_chatroom);
+void client_broadcast(const char *encrypted_msg, size_t msg_len, int is_chatroom);
 
 /*
  * client_connect_thread - pthread entry point for peer_manager_connect_all
