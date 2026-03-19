@@ -1,6 +1,13 @@
 #ifndef CHATROOM_H
 #define CHATROOM_H
 
+//Userspace msg struct
+typedef struct {
+    int id;
+    char sender[64];
+    long timestamp;
+    char encrypted_preview[256];  
+} chat_msg_t;
 /*
  * chatroom_send - send an encrypted message to all peers via chatroom buffer
  * - write to /dev/keycipher_out (kernel encrypts)
@@ -35,8 +42,9 @@ void *chatroom_read_loop(void *arg);
  */
 int chatroom_get_semaphore_count(void);
 
-//TODO: add below
-/*int chatroom_get_message_count(void);
-chat_msg_t *chatroom_get_messages(void);*/
+
+
+int chatroom_get_message_count(void);
+chat_msg_t *chatroom_get_messages(void);
 
 #endif /* CHATROOM_H */
