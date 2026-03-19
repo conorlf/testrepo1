@@ -19,4 +19,7 @@ int direct_send(peer_t *peer, const char *plaintext);
  */
 void *direct_receive_loop(void *arg);
 
+/*int direct_get_message_count(void);
+user_msg_t *direct_get_messages(void);*/
+
 #endif /* DIRECT_H */

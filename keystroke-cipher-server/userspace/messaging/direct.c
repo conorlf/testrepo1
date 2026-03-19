@@ -18,6 +18,14 @@ typedef struct {
     int len;
 } kernel_msg_t;
 
+int direct_get_message_count(void) {
+    return inbox_count;
+}
+
+/*user_msg_t *direct_get_messages(void) {
+    return inbox;
+}*/
+
 /*
  * direct_send - write plaintext to /dev/keycipher_out
  * - open("/dev/keycipher_out", O_WRONLY)
@@ -67,6 +75,22 @@ int direct_send(peer_t *peer, const char *plaintext)
     return client_send_message(peer, (const char*)&encrypted, 0);
 }
 
+/*TODO: IMPLEMENT userspace buffer*/
+/*#define MAX_MESSAGES 128
+
+typedef struct {
+    int id;
+    char sender[64];
+    long timestamp;
+    char encrypted_preview[256];
+} user_msg_t;
+
+static user_msg_t inbox[MAX_MESSAGES];
+static int inbox_count = 0;
+static int next_id = 1;*/
+
+
+
 /*
  * direct_receive_loop - blocking read loop on /dev/keycipher_in
  * - open("/dev/keycipher_in", O_RDONLY)
@@ -98,6 +122,19 @@ void *direct_receive_loop(void *arg)
         if (bytes == 0) continue;
 
         printf("%s: %.*s\n", msg.author, msg.len, msg.data);
+        /*PLS ADD userspace_buffer FOR USE IN API HANDLERS INSTEAD OF PRINT*/
+        /*while (1) {
+        bytes = read(dev_fd, &msg, sizeof(msg));
+        if (bytes <= 0) continue;
+
+        if (inbox_count < MAX_MESSAGES) {
+            inbox[inbox_count].id = next_id++;
+            strncpy(inbox[inbox_count].sender, msg.author, 63);
+            inbox[inbox_count].timestamp = msg.tv_sec;
+            strncpy(inbox[inbox_count].encrypted_preview, msg.data, 255);
+            inbox_count++;
+        }
+    }*/
     }
 
     close(dev_fd);

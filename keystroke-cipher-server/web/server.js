@@ -1,6 +1,6 @@
 /**
  * server.js — Node.js bridge between frontend and C backend API
- * React/HTML <──WebSocket──> Node.js <──HTTP──> C API server
+ * HTML <──WebSocket──> Node.js <──HTTP──> C API server
  *                                   <──/proc──> /proc/keycipher/stats
  */
 
