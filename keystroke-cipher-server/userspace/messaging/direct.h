@@ -12,6 +12,13 @@
 int direct_send(peer_t *peer, const char *plaintext);
 
 /*
+ * direct_send_loop - thread that drains /dev/keycipher_out and broadcasts to peers
+ * blocks on read until input_intercept puts a message in outbox_fifo (user pressed Enter)
+ * calls client_broadcast for each message — backpressure handled inside client_send_message
+ */
+void *direct_send_loop(void *arg);
+
+/*
  * direct_receive_loop - thread that reads /dev/keycipher_in continuously
  * - blocking read from /dev/keycipher_in
  * - each read returns one decrypted message (decrypted by kernel on READ)

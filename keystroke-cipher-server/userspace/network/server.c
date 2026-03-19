@@ -185,41 +185,45 @@ void *server_handle_connection(void *arg)
     int client_fd = *(int*)arg;
     free(arg); // was malloc'd before pthread_create
 
-    char buf[1024];
+    char hdrbuf[2048];
     char sender_ip[64] = "unknown";
     char is_chatroom[8] = "0";
-    char content_len[16] = "0";
-
+    char content_len_str[16] = "0";
 
     SSL *ssl = SSL_new(ssl_ctx);
     SSL_set_fd(ssl, client_fd);
 
-    int ssl_accept = SSL_accept(ssl);
-    if (ssl_accept <= 0) {
+    if (SSL_accept(ssl) <= 0) {
         ERR_print_errors_fp(stderr);
         SSL_free(ssl);
         close(client_fd);
         return NULL;
     }
 
-    int bytes = SSL_read(ssl, buf, sizeof(buf) - 1);
-    if (bytes <= 0) {
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-        close(client_fd);
-        return NULL;
+    // Read until we have the full headers (\r\n\r\n) — body may follow in hdrbuf
+    int total = 0;
+    while (total < (int)sizeof(hdrbuf) - 1) {
+        int n = SSL_read(ssl, hdrbuf + total, sizeof(hdrbuf) - 1 - total);
+        if (n <= 0) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(client_fd);
+            return NULL;
+        }
+        total += n;
+        hdrbuf[total] = '\0';
+        if (strstr(hdrbuf, "\r\n\r\n")) break;
     }
-    buf[bytes] = '\0';
-    
-    parse_header(buf, "X-Sender-IP:", sender_ip, sizeof(sender_ip));
-    parse_header(buf, "X-Is-Chatroom:",  is_chatroom,  sizeof(is_chatroom));
-    parse_header(buf, "Content-Length:", content_len,  sizeof(content_len));
 
-    int msg_len = atoi(content_len);
+    parse_header(hdrbuf, "X-Sender-IP:",    sender_ip,       sizeof(sender_ip));
+    parse_header(hdrbuf, "X-Chatroom:",     is_chatroom,     sizeof(is_chatroom));
+    parse_header(hdrbuf, "Content-Length:", content_len_str, sizeof(content_len_str));
 
-    printf("KeyCipher: message from %s | chatroom = %s | len = %d\n", sender_ip, is_chatroom, msg_len);
-    const char *body = parse_body(buf);
-    if (!body || msg_len <= 0) {
+    int msg_len = atoi(content_len_str);
+
+    // Locate where body starts inside hdrbuf
+    const char *hdr_end = strstr(hdrbuf, "\r\n\r\n");
+    if (!hdr_end || msg_len <= 0) {
         const char *bad = "HTTP/1.1 400 Bad Request\r\n\r\n";
         SSL_write(ssl, bad, strlen(bad));
         SSL_shutdown(ssl);
@@ -227,18 +231,46 @@ void *server_handle_connection(void *arg)
         close(client_fd);
         return NULL;
     }
+    hdr_end += 4; // skip past \r\n\r\n
 
-    //Want to send HTTP 429 instead of blocking here so client blocks
+    // How many body bytes already arrived with the headers
+    int body_in_hdr = total - (int)(hdr_end - hdrbuf);
+
+    // Allocate exact-size body buffer
+    char *body = malloc(msg_len);
+    if (!body) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+        close(client_fd);
+        return NULL;
+    }
+    if (body_in_hdr > 0)
+        memcpy(body, hdr_end, body_in_hdr < msg_len ? body_in_hdr : msg_len);
+
+    // Read any remaining body bytes that hadn't arrived yet
+    int body_read = body_in_hdr;
+    while (body_read < msg_len) {
+        int n = SSL_read(ssl, body + body_read, msg_len - body_read);
+        if (n <= 0) {
+            free(body);
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(client_fd);
+            return NULL;
+        }
+        body_read += n;
+    }
+
+    printf("KeyCipher: message from %s | chatroom = %s | len = %d\n", sender_ip, is_chatroom, msg_len);
+
     int ret;
-
     if (atoi(is_chatroom)) {
-        // chatroom message - goes to chatroom FIFO and chatroom_receive returns -ENOBUFS if full  
         ret = chatroom_receive(body, sender_ip);
     } else {
-        // direct message - goes to inbox FIFO 
         int dev_fd = open(DEVICE_PATH, O_WRONLY | O_NONBLOCK);
         if (dev_fd < 0) {
             perror("KeyCipher: failed to open device");
+            free(body);
             const char *err = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
             SSL_write(ssl, err, strlen(err));
             SSL_shutdown(ssl);
@@ -250,28 +282,22 @@ void *server_handle_connection(void *arg)
         close(dev_fd);
     }
 
-    if (ret < 0) { //FIFO FULL
+    free(body);
+
+    if (ret < 0) {
         printf("KeyCipher: FIFO full, sending 429 to %s\n", sender_ip);
         const char *busy = "HTTP/1.1 429 Too Many Requests\r\n\r\n";
         SSL_write(ssl, busy, strlen(busy));
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-        close(client_fd);
-        return NULL;
+    } else {
+        printf("KeyCipher: Received and accepted message from %s\n", sender_ip);
+        const char *ok = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+        SSL_write(ssl, ok, strlen(ok));
     }
 
-    printf("KeyCipher: Received and accepted message from %s\n", sender_ip);
-
-    const char *response = "HTTP/1.1 200 OK\r\n" "Content-Length: 0\r\n" "\r\n"; 
-    SSL_write(ssl, response, strlen(response));
-    
-
-    //Clean up
     SSL_shutdown(ssl);
     SSL_free(ssl);
     close(client_fd);
     return NULL;
-
 }
 
 /*
