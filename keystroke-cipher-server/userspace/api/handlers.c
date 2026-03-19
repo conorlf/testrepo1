@@ -22,6 +22,8 @@ void handle_get_stats(int client_fd) {
         return;
     }
 
+    //TODO: make sure proc file exists pls
+
     int incoming_used=0, incoming_free=0;
     int outgoing_used=0, outgoing_free=0;
     int chatroom_used=0, chatroom_free=0;
@@ -113,12 +115,48 @@ void handle_get_stats(int client_fd) {
  * - read message queue from userspace buffer (populated by direct_receive_loop)
  * - build JSON array: [{ id, sender, timestamp, encrypted_preview }]
  * - write HTTP 200 + JSON to client_fd
- * NOTE: messages are NOT decrypted here, only previewed as encrypted
- *       decryption happens when user clicks READ
+ * NOTE: messages are NOT decrypted here, only previewed as encrypted (?)
  */
-void handle_get_messages(int client_fd)
-{
-    /* TODO: implement message list JSON response */
+void handle_get_messages(int client_fd) {
+    user_msg_t *msgs = direct_get_messages(); //TODO: make sure direct.c has new additions
+    int count = direct_get_message_count();
+
+    //create JSON
+    char json[4096];
+    json[0] = '\0';        //start empty
+
+    strcat(json, "[");     //begin array
+
+    for (int i = 0; i < count; i++) {
+        char entry[512];
+
+        // Format one message entry
+        snprintf(entry, sizeof(entry),
+            "{\"id\": %d,"
+             "\"sender\": \"%s\","
+             "\"timestamp\": %ld,"
+             "\"encrypted_preview\": \"%s\"}",
+            msgs[i].id,
+            msgs[i].sender,
+            msgs[i].timestamp,
+            msgs[i].encrypted_preview
+        );
+
+        strcat(json, entry);
+
+        if (i < count - 1)
+            strcat(json, ",");
+    }
+    strcat(json, "]");
+
+
+    dprintf(client_fd,
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %zu\r\n\r\n"
+        "%s",
+        strlen(json), json
+    );
 }
 
 /*
@@ -126,9 +164,55 @@ void handle_get_messages(int client_fd)
  * - similar to handle_get_messages but for chatroom buffer
  * - include semaphore_count in response so UI can show live counter
  */
-void handle_get_chatroom(int client_fd)
-{
-    /* TODO: implement chatroom message list */
+void handle_get_chatroom(int client_fd) {
+    //fetch chatroom messages
+    chat_msg_t *msgs = chatroom_get_messages(); //TODO: make sure its implemented
+    int count = chatroom_get_message_count();
+
+    //fetch semaphore count
+    int sema_count = chatroom_get_semaphore_count();
+
+    //build JSON
+    char json[4096];
+    json[0] = '\0';
+    strcat(json, "{");
+    
+    //add semaphore count first
+    char sema_entry[64];
+    snprintf(sema_entry, sizeof(sema_entry),
+             "\"semaphore_count\": %d, \"messages\": [",
+             sema_count);
+    strcat(json, sema_entry);
+
+    //adding message entries
+    for (int i = 0; i < count; i++) {
+        char entry[512];
+
+        snprintf(entry, sizeof(entry),
+            "{\"id\": %d,"
+             "\"sender\": \"%s\","
+             "\"timestamp\": %ld,"
+             "\"encrypted_preview\": \"%s\"}",
+            msgs[i].id,
+            msgs[i].sender,
+            msgs[i].timestamp,
+            msgs[i].encrypted_preview
+        );
+
+        strcat(json, entry);
+
+        if (i < count - 1)
+            strcat(json, ",");
+    }
+    strcat(json, "]}");
+
+    dprintf(client_fd,
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %zu\r\n\r\n"
+        "%s",
+        strlen(json), json
+    );
 }
 
 /*
@@ -140,13 +224,52 @@ void handle_get_chatroom(int client_fd)
  * - any blocked remote peer that was waiting for space will now unblock
  * - return JSON: { id, sender, plaintext, timestamp }
  */
-void handle_read_one(int client_fd, const char *message_id)
-{
-    /* TODO: implement single message decrypt via ioctl */
-    char json[256];
+void handle_read_one(int client_fd, const char *message_id) {
+    int id = atoi(message_id); //ascii/string to integer
+
+    //find message in userspace queue
+    user_msg_t *msg = direct_find_message_by_id(id);
+    if (!msg) {
+        dprintf(client_fd,
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: 15\r\n\r\n"
+            "Message not found");
+        return;
+    }
+
+    //kernel decryption
+    //TODO: check this even works!
+    kernel_msg_t kmsg;
+    int fd = open("/dev/keycipher_in", O_RDONLY); //open as read only
+    if (fd < 0) {
+        perror("handle_read_one: open");
+        dprintf(client_fd, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        return;
+    }
+    int bytes = read(fd, &kmsg, sizeof(kmsg));
+    close(fd);
+
+    if (bytes <= 0) {
+        perror("handle_read_one: read");
+        dprintf(client_fd, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        return;
+    }
+
+    //build JSON
+    char json[512];
     snprintf(json, sizeof(json),
-        "{ \"id\": \"%s\", \"plaintext\": \"hello\" }",
-        message_id
+        "{"
+        "\"id\": %d,"
+        "\"sender\": \"%s\","
+        "\"timestamp\": %ld,"
+        "\"plaintext\": \"%.*s\""
+        "}",
+        msg->id,
+        msg->sender,
+        msg->timestamp,
+        kmsg.len,
+        kmsg.data
     );
 
     dprintf(client_fd,
@@ -167,9 +290,71 @@ void handle_read_one(int client_fd, const char *message_id)
  * - all blocked remote peers unblock simultaneously
  * - return JSON array of all decrypted messages
  */
-void handle_read_all(int client_fd)
-{
-    /* TODO: implement KEYCIPHER_FLUSH_IN ioctl + return all messages */
+void handle_read_all(int client_fd) { //TODO: REVIEW CODE
+    // 1. Open device
+    int fd = open("/dev/keycipher_in", O_RDONLY);
+    if (fd < 0) {
+        perror("handle_read_all: open");
+        dprintf(client_fd, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        return;
+    }
+
+    // 2. Trigger flush ioctl
+    if (ioctl(fd, KEYCIPHER_FLUSH_IN) < 0) {
+        perror("handle_read_all: ioctl");
+        close(fd);
+        dprintf(client_fd, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        return;
+    }
+
+    // 3. Read all decrypted messages
+    kernel_msg_t msgs[64];   // adjust to your FIFO capacity
+    int bytes = read(fd, msgs, sizeof(msgs));
+    close(fd);
+
+    if (bytes < 0) {
+        perror("handle_read_all: read");
+        dprintf(client_fd, "HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        return;
+    }
+
+    int msg_count = bytes / sizeof(kernel_msg_t);
+
+    // 4. Build JSON array
+    char json[8192];
+    json[0] = '\0';
+    strcat(json, "[");
+
+    for (int i = 0; i < msg_count; i++) {
+        char entry[512];
+
+        snprintf(entry, sizeof(entry),
+            "{\"id\": %d,"
+             "\"sender\": \"%s\","
+             "\"timestamp\": %lld,"
+             "\"plaintext\": \"%.*s\"}",
+            i + 1,                       // or match to userspace IDs
+            msgs[i].author,
+            msgs[i].tv_sec,
+            msgs[i].len,
+            msgs[i].data
+        );
+
+        strcat(json, entry);
+        if (i < msg_count - 1)
+            strcat(json, ",");
+    }
+
+    strcat(json, "]");
+
+    // 5. Send HTTP response
+    dprintf(client_fd,
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %zu\r\n\r\n"
+        "%s",
+        strlen(json), json
+    );
 }
 
 /*

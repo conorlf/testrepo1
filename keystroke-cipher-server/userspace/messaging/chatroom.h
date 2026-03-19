@@ -35,4 +35,8 @@ void *chatroom_read_loop(void *arg);
  */
 int chatroom_get_semaphore_count(void);
 
+//TODO: add below
+/*int chatroom_get_message_count(void);
+chat_msg_t *chatroom_get_messages(void);*/
+
 #endif /* CHATROOM_H */
