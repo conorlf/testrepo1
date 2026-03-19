@@ -20,5 +20,6 @@ int     peer_manager_init(const char *config_file);
 peer_t *peer_get_all(int *count);
 void    peer_set_status(const char *ip, peer_status_t status);
 void    peer_manager_cleanup(void);
+int peer_manager_connect_all(void);
 
 #endif

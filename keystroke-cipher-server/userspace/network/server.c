@@ -9,7 +9,9 @@
 #include <unistd.h>        // close()
 #include <arpa/inet.h>       //inet()
 #include "server.h"
+#include "../messaging/chatroom.h"
 #include <fcntl.h>
+
 
 
 static int listen_fd;
@@ -227,19 +229,27 @@ void *server_handle_connection(void *arg)
     }
 
     //Want to send HTTP 429 instead of blocking here so client blocks
-    int dev_fd = open(DEVICE_PATH, O_WRONLY | O_NONBLOCK);
-    if (dev_fd < 0) {
-        perror("KeyCipher: failed to open device");
-        const char *err = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
-        SSL_write(ssl, err, strlen(err));
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-        close(client_fd);
-        return NULL;
+    int ret;
+
+    if (atoi(is_chatroom)) {
+        // chatroom message - goes to chatroom FIFO and chatroom_receive returns -ENOBUFS if full  
+        ret = chatroom_receive(body, sender_ip);
+    } else {
+        // direct message - goes to inbox FIFO 
+        int dev_fd = open(DEVICE_PATH, O_WRONLY | O_NONBLOCK);
+        if (dev_fd < 0) {
+            perror("KeyCipher: failed to open device");
+            const char *err = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
+            SSL_write(ssl, err, strlen(err));
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(client_fd);
+            return NULL;
+        }
+        ret = write(dev_fd, body, msg_len);
+        close(dev_fd);
     }
 
-    int ret = write(dev_fd, body, msg_len);
-    close(dev_fd);
     if (ret < 0) { //FIFO FULL
         printf("KeyCipher: FIFO full, sending 429 to %s\n", sender_ip);
         const char *busy = "HTTP/1.1 429 Too Many Requests\r\n\r\n";
@@ -276,11 +286,4 @@ void server_stop(void)
     close(listen_fd);
     SSL_CTX_free(ssl_ctx);
     printf("KeyCipher: Server stopped\n");
-}
-
-//temporary main for testing can be deleted
-int main() {
-    server_init(8080);
-    while(1) sleep(1);
-    return 0;
 }

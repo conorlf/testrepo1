@@ -30,6 +30,8 @@ struct keycipher_stats {
     long total_sent;
     long total_received;
     long total_decrypted;
+    int chatroom_used;
+    int chatroom_free;
 };
 
 #endif
