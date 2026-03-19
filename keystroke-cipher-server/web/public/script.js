@@ -1,202 +1,135 @@
-const socket = io("http://localhost:3001");
+const socket = io();
 
-const sendBtn = document.getElementById("sendBtn");
-const textInput = document.getElementById("textInput");
-const messages = document.getElementById("messages");
+const topPeers    = document.getElementById("topPeers");
+const inboxCount  = document.getElementById("inboxCount");
+const outboxCount = document.getElementById("outboxCount");
+const inboxPanel  = document.getElementById("inboxPanel");
+const outboxPanel = document.getElementById("outboxPanel");
 const peerContainer = document.getElementById("peerContainer");
-const chatTitle = document.getElementById("chatTitle");
-const roomList = document.querySelector(".peers");
-const topPeers = document.getElementById("topPeers");
-const topIP = document.getElementById("topIP");
-const topID = document.getElementById("topID");
 
-let currentRoom = "global-chat";
+/* messages that have been decrypted — kept in memory so they survive re-renders */
+const readHistory = []; /* { author, timestamp, encrypted, plaintext } */
 
-/* -------------------------------
-   Load chatroom messages
---------------------------------*/
-async function loadChatroomFromBackend() {
-  try {
-    const res = await fetch("/api/chatroom");
-    const data = await res.json();
+/* track when outbox entries were first seen as sent — for 10s removal */
+const outboxSentAt = {}; /* index -> Date.now() */
 
-    messages.innerHTML = "";
+/* ── live stats from socket ── */
+socket.on("stats", stats => {
+    inboxCount.textContent = stats.incoming_used || 0;
+});
 
-    data.messages.forEach(msg => {
-      const div = document.createElement("div");
-      div.className = msg.from_me ? "message from-me" : "message from-them";
-      div.textContent = msg.encrypted_preview;
-      messages.appendChild(div);
-    });
-
-    messages.scrollTop = messages.scrollHeight;
-  } catch (err) {
-    console.warn("Backend not available.");
-  }
-}
-
-/* -------------------------------
-   Load peers into left + right sidebar
---------------------------------*/
+/* ── peers ── */
 async function loadPeers() {
-  try {
-    const res = await fetch("/api/peers");
-    const peers = await res.json();
+    try {
+        const res  = await fetch("/api/peers");
+        const peers = await res.json();
+        topPeers.textContent = peers.filter(p => p.status === "connected").length;
+        peerContainer.innerHTML = "";
+        peers.forEach(p => {
+            const card = document.createElement("div");
+            card.className = "peer-card";
+            card.innerHTML = `<div class="peer-name">${p.ip}</div>
+                              <div class="peer-status ${p.status}">${p.status}</div>`;
+            peerContainer.appendChild(card);
+        });
+    } catch (e) { console.warn("peers unavailable"); }
+}
 
-    // Left sidebar (rooms)
-    const staticRoom = document.querySelector("[data-room='global-chat']");
-    roomList.innerHTML = "";
-    roomList.appendChild(staticRoom);
+/* ── inbox ── */
+async function loadInbox() {
+    try {
+        const res  = await fetch("/api/messages");
+        const msgs = await res.json();
+        renderInbox(msgs);
+    } catch (e) { console.warn("inbox unavailable"); }
+}
 
-    peers.forEach(p => {
-      const div = document.createElement("div");
-      div.className = "room item";
-      div.dataset.room = p.ip;
-      div.textContent = p.ip;
-      div.addEventListener("click", () => setSelectedRoom(p.ip));
-      roomList.appendChild(div);
+function renderInbox(waiting) {
+    inboxPanel.innerHTML = "";
+
+    /* previously read messages — show encrypted + decrypted */
+    readHistory.forEach(m => {
+        const card = document.createElement("div");
+        card.className = "msg-card read";
+        card.innerHTML = `
+            <div class="msg-meta">From: ${m.author} &bull; ${fmtTime(m.timestamp)}</div>
+            <div class="msg-data encrypted">&#128274; ${m.encrypted}</div>
+            <div class="msg-data decrypted">&#128275; ${m.plaintext}</div>`;
+        inboxPanel.appendChild(card);
     });
 
-    // Right sidebar (peer info)
-    peerContainer.innerHTML = "";
-    peers.forEach(p => {
-      const card = document.createElement("div");
-      card.className = "peer-card";
-      card.innerHTML = `
-        <div class="peer-name">${p.ip}</div>
-        <div class="peer-ip">IP: ${p.ip}</div>
-        <div class="peer-last">Online</div>`;
-      peerContainer.appendChild(card);
+    /* waiting messages — only oldest has Read button */
+    waiting.forEach((m, idx) => {
+        const card = document.createElement("div");
+        card.className = "msg-card waiting-msg";
+        card.innerHTML = `
+            <div class="msg-meta">From: ${m.author} &bull; ${fmtTime(m.timestamp)}</div>
+            <div class="msg-data encrypted">&#128274; ${m.data}</div>
+            ${idx === 0 ? `<button class="read-btn" onclick="readNext(this, '${m.author}', ${m.timestamp}, '${m.data}')">Read</button>` : ""}`;
+        inboxPanel.appendChild(card);
     });
 
-    // Update top bar
-    topPeers.textContent = peers.length;
-  } catch (err) {
-    console.warn("Could not load peers");
-  }
+    inboxCount.textContent = waiting.length;
 }
 
-/* -------------------------------
-   Load top bar stats
---------------------------------*/
-async function loadStats() {
-  try {
-    const res = await fetch("/api/stats");
-    const stats = await res.json();
-
-    topIP.textContent = stats.my_ip;
-    topID.textContent = stats.my_id;
-  } catch (err) {
-    console.warn("Stats unavailable");
-  }
+async function readNext(btn, author, timestamp, encrypted) {
+    btn.disabled = true;
+    try {
+        const res  = await fetch("/api/read/1", { method: "POST" });
+        const data = await res.json();
+        if (data.data) {
+            readHistory.unshift({ author, timestamp, encrypted, plaintext: data.data });
+            loadInbox();
+        }
+    } catch (e) { console.warn("read failed", e); btn.disabled = false; }
 }
 
-/* -------------------------------
-   Room switching logic
---------------------------------*/
-function setSelectedRoom(roomId) {
-  currentRoom = roomId;
+socket.on("message_read", () => loadInbox());
 
-  // Highlight selected room
-  document.querySelectorAll(".room.item").forEach(item => {
-    item.classList.toggle("selected", item.dataset.room === roomId);
-  });
-
-  chatTitle.textContent = roomId === "global-chat" ? "Global Chat" : roomId;
-
-  messages.innerHTML = "";
-
-  if (roomId === "global-chat") {
-    loadChatroomFromBackend();
-  } else {
-    loadDirectMessages(roomId);
-  }
+/* ── outbox ── */
+async function loadOutbox() {
+    try {
+        const res  = await fetch("/api/outbox");
+        const msgs = await res.json();
+        renderOutbox(msgs);
+    } catch (e) { console.warn("outbox unavailable"); }
 }
 
-/* -------------------------------
-   Load direct messages for a peer
---------------------------------*/
-async function loadDirectMessages(peerIp) {
-  try {
-    const res = await fetch(`/api/messages/${peerIp}`);
-    const data = await res.json();
+function renderOutbox(msgs) {
+    const now = Date.now();
+    outboxPanel.innerHTML = "";
+    let queued = 0;
 
-    messages.innerHTML = "";
+    msgs.forEach((m, idx) => {
+        if (!m.waiting) {
+            if (!outboxSentAt[idx]) outboxSentAt[idx] = now;
+            if (now - outboxSentAt[idx] > 10000) return; /* remove after 10s */
+        } else {
+            queued++;
+        }
 
-    data.messages.forEach(msg => {
-      const div = document.createElement("div");
-      div.className = msg.from_me ? "message from-me" : "message from-them";
-      div.textContent = msg.encrypted_preview;
-      messages.appendChild(div);
+        const card = document.createElement("div");
+        card.className = `msg-card ${m.waiting ? "outbox-waiting" : "outbox-sent"}`;
+        card.innerHTML = `
+            <div class="msg-meta">${fmtTime(m.timestamp)} &bull;
+                <span class="status-tag">${m.waiting ? "&#9203; Waiting..." : "&#10003; Sent"}</span>
+            </div>
+            <div class="msg-data encrypted">&#128274; ${m.data}</div>`;
+        outboxPanel.appendChild(card);
     });
 
-    messages.scrollTop = messages.scrollHeight;
-  } catch (err) {
-    console.warn("Could not load direct messages");
-  }
+    outboxCount.textContent = queued;
 }
 
-/* -------------------------------
-   Append bubble to UI
---------------------------------*/
-function appendBubble(text, fromMe = true) {
-  if (!text.trim()) return;
-  const msg = document.createElement("div");
-  msg.className = `message ${fromMe ? "from-me" : "from-them"}`;
-  msg.textContent = text;
-  messages.appendChild(msg);
-  messages.scrollTop = messages.scrollHeight;
+/* ── helpers ── */
+function fmtTime(ts) {
+    return new Date(ts * 1000).toLocaleTimeString();
 }
 
-/* -------------------------------
-   Send chatroom message
---------------------------------*/
-async function sendToBackend(text) {
-  await fetch("/api/send/chatroom", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: text })
-  });
-}
-
-/* -------------------------------
-   Send button
---------------------------------*/
-sendBtn.addEventListener("click", () => {
-  const text = textInput.value;
-  if (!text.trim()) return;
-
-  appendBubble(text, true);
-  sendToBackend(text);
-
-  textInput.value = "";
-});
-
-/* -------------------------------
-   Enter key
---------------------------------*/
-textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    sendBtn.click();
-  }
-});
-
-/* -------------------------------
-   Receive chatroom message
---------------------------------*/
-socket.on("chatroom_message", data => {
-  if (currentRoom === "global-chat") {
-    appendBubble(data.encrypted_preview, false);
-  }
-});
-
-/* -------------------------------
-   Initial load
---------------------------------*/
+/* ── polling ── */
 loadPeers();
-loadStats();
-setInterval(loadPeers, 1500);
-setInterval(loadStats, 1500);
-
-setSelectedRoom(currentRoom);
+loadInbox();
+loadOutbox();
+setInterval(loadPeers,  2000);
+setInterval(loadInbox,  1000);
+setInterval(loadOutbox, 1000);

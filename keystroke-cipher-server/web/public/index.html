@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>P2P Messaging</title>
+  <title>KeyCipher P2P</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -14,40 +14,39 @@
         <p class="value" id="topPeers">0</p>
       </div>
       <div>
-        <p class="label">Current IP</p>
-        <p class="value" id="topIP">0.0.0.0</p>
+        <p class="label">Inbox waiting</p>
+        <p class="value" id="inboxCount">0</p>
       </div>
       <div>
-        <p class="label">My ID</p>
-        <p class="value" id="topID">unknown</p>
+        <p class="label">Outbox queued</p>
+        <p class="value" id="outboxCount">0</p>
       </div>
     </header>
 
     <main class="layout">
+
       <section class="column peers">
-        <div class="column-title">Available Rooms / Peers</div>
-        <div class="room item static" data-room="global-chat"># global-chat</div>
-        <div class="divider"></div>
-      </section>
-
-      <section class="column chat">
-        <div class="column-title" id="chatTitle">Chat</div>
-        <div id="messages" class="messages" aria-live="polite">
-          <div class="message from-them">Welcome to global chat.</div>
-          <div class="message from-me">Hello everyone.</div>
-        </div>
-        <div class="composer">
-          <input id="textInput" type="text" placeholder="Type a message..." maxlength="220" />
-          <button id="sendBtn">Send</button>
-        </div>
-      </section>
-
-      <section class="column info">
-        <div class="column-title">Connected Peer Info</div>
+        <div class="column-title">Peers</div>
         <div id="peerContainer"></div>
       </section>
+
+      <section class="column inbox-col">
+        <div class="column-title">Inbox</div>
+        <div id="inboxPanel" class="msg-panel"></div>
+      </section>
+
+      <section class="column outbox-col">
+        <div class="column-title">Outbox</div>
+        <div id="outboxPanel" class="msg-panel"></div>
+      </section>
+
     </main>
+
+    <div class="keyboard-echo">
+      <input id="echoInput" type="text" placeholder="Keyboard echo — type to preview your message before hitting Enter to send..." readonly />
+    </div>
   </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
 </body>

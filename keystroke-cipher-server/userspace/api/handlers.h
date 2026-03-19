@@ -16,6 +16,7 @@
 
 void handle_get_stats(int client_fd);
 void handle_get_messages(int client_fd);
+void handle_get_outbox(int client_fd);
 void handle_get_chatroom(int client_fd);
 void handle_read_one(int client_fd, const char *message_id);
 void handle_read_all(int client_fd);

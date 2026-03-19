@@ -10,8 +10,9 @@ echo "[*] Loading module..."
 sudo insmod ../kernel/keycipher.ko
 
 echo "[*] Creating device files..."
-sudo mknod /dev/keycipher_in  c $(grep keycipher_in  /proc/devices | awk '{print $1}') 0
-sudo mknod /dev/keycipher_out c $(grep keycipher_out /proc/devices | awk '{print $1}') 0
+MAJOR=$(grep keycipher /proc/devices | awk '{print $1}')
+sudo mknod /dev/keycipher_out c "$MAJOR" 0
+sudo mknod /dev/keycipher_in  c "$MAJOR" 1
 
 echo "[*] Setting permissions..."
 sudo chmod 666 /dev/keycipher_in

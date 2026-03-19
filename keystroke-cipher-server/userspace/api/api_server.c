@@ -99,14 +99,18 @@ void *api_server_start(void *arg) {
             handle_get_chatroom(client_fd);
         }
 
-        /* POST /api/read/:id */
-        else if (strcmp(method, "POST") == 0 && strncmp(path, "/api/read/", 10) == 0) {
-            const char *id = path + 10;  // everything after /api/read/
-            handle_read_one(client_fd, id);
+        else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/outbox") == 0) {
+            handle_get_outbox(client_fd);
         }
 
         else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/read/all") == 0) {
             handle_read_all(client_fd);
+        }
+
+        /* POST /api/read/:id */
+        else if (strcmp(method, "POST") == 0 && strncmp(path, "/api/read/", 10) == 0) {
+            const char *id = path + 10;  // everything after /api/read/
+            handle_read_one(client_fd, id);
         }
 
         else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/send") == 0) {

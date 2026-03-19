@@ -5,48 +5,27 @@
 
 #define MAX_MESSAGES 64
 
-/*
- * direct_send - send an encrypted direct message to one peer
- * - read raw text from /dev/keycipher_out (already encrypted by kernel)
- * - call client_send_message(peer, encrypted, 0)
- * - update outbox in stats
- */
-int direct_send(peer_t *peer, const char *plaintext);
-
-/*
- * direct_send_loop - thread that drains /dev/keycipher_out and broadcasts to peers
- * blocks on read until input_intercept puts a message in outbox_fifo (user pressed Enter)
- * calls client_broadcast for each message — backpressure handled inside client_send_message
- */
-void *direct_send_loop(void *arg);
-
-/*
- * direct_receive_loop - thread that reads /dev/keycipher_in continuously
- * - blocking read from /dev/keycipher_in
- * - each read returns one decrypted message (decrypted by kernel on READ)
- * - notify API layer so frontend can poll and display it
- */
-void *direct_receive_loop(void *arg);
-
-//Kernel message struct 
+/* single message struct used everywhere — matches kernel/keycipher.h layout */
 typedef struct {
     long long tv_sec;
-    long tv_nsec;
-    char author[64];
-    char data[256];
-    int len;
+    long      tv_nsec;
+    char      author[64];
+    char      data[256];
+    int       len;
 } kernel_msg_t;
 
-//Userspace message struct
-typedef struct {
-    int id;
-    char sender[64];
-    long timestamp;
-    char encrypted_preview[256];
-} user_msg_t;
+/* send loop thread — drains /dev/keycipher_out and broadcasts to peers */
+void *direct_send_loop(void *arg);
 
-int direct_get_message_count(void);
-user_msg_t *direct_get_messages(void);
-user_msg_t *direct_find_message_by_id(int id);
+/* inbox — populated by server.c when a message arrives */
+void          direct_add_to_inbox(const kernel_msg_t *msg);
+int           direct_pop_inbox_front(void);
+int           direct_get_inbox_count(void);
+kernel_msg_t *direct_get_inbox(void);
+
+/* outbox — populated by direct_send_loop when a message is sent */
+int           direct_get_outbox_count(void);
+kernel_msg_t *direct_get_outbox(void);
+int          *direct_get_outbox_waiting(void);
 
 #endif /* DIRECT_H */

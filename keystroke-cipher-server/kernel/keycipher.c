@@ -11,7 +11,7 @@
 #include "input_intercept.h"
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Team");
+MODULE_AUTHOR("Our Team");
 MODULE_DESCRIPTION("Kernel-level encrypted P2P messaging driver");
 MODULE_VERSION("1.0");
 

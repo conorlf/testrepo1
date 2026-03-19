@@ -62,6 +62,32 @@ app.get('/api/stats', (req, res) => {
 });
 
 /* ─────────────────────────────────────────────────────────────── */
+/* GET /api/peers — proxy to C backend stats, extract peers        */
+/* ─────────────────────────────────────────────────────────────── */
+
+app.get('/api/peers', async (req, res) => {
+    try {
+        const response = await axios.get(`${C_BACKEND_URL}/api/stats`);
+        res.json(response.data.peers || []);
+    } catch (err) {
+        res.status(500).json({ error: 'C backend unreachable' });
+    }
+});
+
+/* ─────────────────────────────────────────────────────────────── */
+/* GET /api/outbox — proxy to C backend                            */
+/* ─────────────────────────────────────────────────────────────── */
+
+app.get('/api/outbox', async (req, res) => {
+    try {
+        const response = await axios.get(`${C_BACKEND_URL}/api/outbox`);
+        res.json(response.data);
+    } catch (err) {
+        res.status(500).json({ error: 'C backend unreachable' });
+    }
+});
+
+/* ─────────────────────────────────────────────────────────────── */
 /* GET /api/messages — proxy to C backend                          */
 /* ─────────────────────────────────────────────────────────────── */
 
@@ -94,9 +120,9 @@ app.get('/api/chatroom', async (req, res) => {
 app.post('/api/read/:id', async (req, res) => {
     try {
         const response = await axios.post(`${C_BACKEND_URL}/api/read/${req.params.id}`);
-        const plaintext = response.data.plaintext;
+        const { sender, plaintext, timestamp } = response.data;
 
-        io.emit('message_read', { id: req.params.id, plaintext });
+        io.emit('message_read', { sender, plaintext, timestamp });
 
         // update stats after read
         fs.readFile(PROC_STATS, 'utf8', (err, data) => {

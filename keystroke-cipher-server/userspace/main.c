@@ -6,7 +6,7 @@
   #include "network/client.h"
   #include "messaging/direct.h"
   #include "messaging/chatroom.h"
-
+  #include "api/api_server.h" 
   static volatile int running = 1;
 
   static void signal_handler(int sig)
@@ -18,7 +18,7 @@
 
   int main(int argc, char *argv[])
   {
-      pthread_t chatroom_thread, send_thread;
+      pthread_t chatroom_thread, send_thread, api_thread;
 
       printf("KeyCipher daemon starting...\n");
 
@@ -51,11 +51,9 @@
       pthread_create(&send_thread, NULL, direct_send_loop, NULL);
       pthread_detach(send_thread);
 
-      //inbox is handled by inbox_terminal — do not drain /dev/keycipher_in here
-
-      //thread: blocking reads from chatroom FIFO
-      pthread_create(&chatroom_thread, NULL, chatroom_read_loop, NULL);
-      pthread_detach(chatroom_thread);
+      //thread: C HTTP API server for Node.js bridge
+      pthread_create(&api_thread, NULL, api_server_start, NULL);
+      pthread_detach(api_thread);
 
       printf("KeyCipher daemon running\n");
       while (running)

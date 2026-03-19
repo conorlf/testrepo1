@@ -300,6 +300,10 @@ void *server_handle_connection(void *arg)
         }
         ret = write(dev_fd, body, msg_len);
         close(dev_fd);
+
+        /* register in userspace inbox so API can show it in the frontend */
+        if (ret > 0 && msg_len >= (int)sizeof(kernel_msg_t))
+            direct_add_to_inbox((kernel_msg_t *)body);
     }
 
     free(body);

@@ -1,94 +1,54 @@
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include "direct.h"
 #include "../network/client.h"
 
 #define DEVICE_OUT "/dev/keycipher_out"
-#define DEVICE_IN "/dev/keycipher_in"
 
-static user_msg_t inbox[MAX_MESSAGES];
+/* inbox — filled by server.c when encrypted message arrives from peer */
+static kernel_msg_t inbox[MAX_MESSAGES];
 static int inbox_count = 0;
-static int next_id = 1;
 
-int direct_get_message_count(void) {
-    return inbox_count;
-}
+/* outbox — filled by direct_send_loop when message is popped and sent */
+static kernel_msg_t outbox[MAX_MESSAGES];
+static int outbox_waiting[MAX_MESSAGES]; /* 1 = blocked, 0 = sent */
+static int outbox_count = 0;
 
-user_msg_t *direct_get_messages(void) {
-    return inbox;
-}
+/* inbox accessors */
+int direct_get_inbox_count(void)  { return inbox_count; }
+kernel_msg_t *direct_get_inbox(void) { return inbox; }
 
-user_msg_t *direct_find_message_by_id(int id) {
-    for (int i = 0; i < inbox_count; i++) {
-        if (inbox[i].id == id)
-            return &inbox[i];
-    }
-    return NULL;
-}
-
-/*
- * direct_send - write plaintext to /dev/keycipher_out
- * - open("/dev/keycipher_out", O_WRONLY)
- * - write(fd, plaintext, len) - kernel encrypts and puts in outgoing FIFO
- * - close(fd)
- * - client layer then reads outgoing FIFO and sends to peer
- */
-int direct_send(peer_t *peer, const char *plaintext)
+void direct_add_to_inbox(const kernel_msg_t *msg)
 {
-    kernel_msg_t msg;
-    kernel_msg_t encrypted;
-    int dev_fd;
-    int ret;
-    int bytes;
-
-    memset(&msg, 0, sizeof(msg));
-    strncpy(msg.data, plaintext, sizeof(msg.data) - 1); // strncpy Limits how many bytes copied preventing overflowing the buffer
-    msg.len = strlen(plaintext);
-
-    dev_fd = open(DEVICE_OUT, O_WRONLY);
-    if (dev_fd < 0) {
-        perror("direct_send: Couldn't open device");
-        return -1;
-    }
-
-    ret = write(dev_fd, &msg, sizeof(msg));
-    close(dev_fd);
-    if (ret < 0) {
-        perror("direct_send: Write failure");
-        return -1;
-    }
-
-    dev_fd = open(DEVICE_OUT, O_RDONLY);
-    if (dev_fd < 0) {
-        perror("direct_send: Couldn't read encrypted message");
-        return -1;
-    }
-
-    bytes = read(dev_fd, &encrypted, sizeof(encrypted));
-    close(dev_fd);
-    if (bytes < 0) {
-        perror("direct_send: Read encrypted failure");
-        return -1;
-    }
-
-    //Hand over to client in network
-    return client_send_message(peer, (const char*)&encrypted, sizeof(encrypted), 0);
+    if (inbox_count >= MAX_MESSAGES) return;
+    inbox[inbox_count++] = *msg;
 }
 
+int direct_pop_inbox_front(void)
+{
+    if (inbox_count == 0) return -1;
+    for (int i = 0; i < inbox_count - 1; i++)
+        inbox[i] = inbox[i + 1];
+    inbox_count--;
+    return 0;
+}
+
+/* outbox accessors */
+int direct_get_outbox_count(void)    { return outbox_count; }
+kernel_msg_t *direct_get_outbox(void) { return outbox; }
+int *direct_get_outbox_waiting(void)  { return outbox_waiting; }
+
 /*
- * direct_send_loop - blocking read loop on /dev/keycipher_out
- * pops each encrypted outbox message and broadcasts it to all connected peers
- * blocks if outbox_fifo is empty (kernel semaphore)
- * if a peer's inbox is full, client_send_message handles the 429 backpressure retry
+ * direct_send_loop - blocks on /dev/keycipher_out waiting for keyboard intercept
+ * to push an encrypted message, then broadcasts to all peers
  */
 void *direct_send_loop(void *arg)
 {
+    (void)arg;
     kernel_msg_t msg;
     int dev_fd;
-    int bytes;
 
     dev_fd = open(DEVICE_OUT, O_RDONLY);
     if (dev_fd < 0) {
@@ -99,62 +59,28 @@ void *direct_send_loop(void *arg)
     printf("direct_send_loop: started, waiting for outbox messages...\n");
 
     while (1) {
-        bytes = read(dev_fd, &msg, sizeof(msg));
-        if (bytes < 0) {
-            perror("direct_send_loop: read failure");
-            break;
-        }
+        int bytes = read(dev_fd, &msg, sizeof(msg));
+        if (bytes < 0) { perror("direct_send_loop: read failure"); break; }
         if (bytes == 0) continue;
 
-        printf("direct_send_loop: sending message from %s (%d chars)\n",
+        /* add to outbox as waiting */
+        int idx = -1;
+        if (outbox_count < MAX_MESSAGES) {
+            idx = outbox_count;
+            outbox[idx] = msg;
+            outbox_waiting[idx] = 1;
+            outbox_count++;
+        }
+
+        printf("direct_send_loop: broadcasting message from %s (%d chars)\n",
                msg.author, msg.len);
+
+        /* client_broadcast blocks internally on 429 backpressure until delivered */
         client_broadcast((const char *)&msg, sizeof(msg), 0);
-    }
 
-    close(dev_fd);
-    return NULL;
-}
-
-/*
- * direct_receive_loop - blocking read loop on /dev/keycipher_in
- * - open("/dev/keycipher_in", O_RDONLY)
- * - while(1): read(fd, buf, MAX_MESSAGE_LEN)
- *   - read BLOCKS if FIFO is empty (kernel semaphore)
- *   - kernel decrypts before returning data to userspace
- *   - store message in a userspace queue for API to serve to frontend
- */
-void *direct_receive_loop(void *arg)
-{
-    kernel_msg_t msg;
-    int dev_fd;
-    int bytes;
-
-    dev_fd = open(DEVICE_IN, O_RDONLY);
-    if (dev_fd < 0) {
-        perror("direct_receive_loop: Open device failure");
-        return NULL;
-    }
-
-    printf("direct_receive_loop: Started, waiting for messages...\n");
-
-    while (1) {
-        bytes = read(dev_fd, &msg, sizeof(msg));
-        if (bytes < 0) {
-            perror("direct_receive_loop: Read message failure");
-            break;
-        }
-        if (bytes == 0) continue;
-
-        printf("%s: %.*s\n", msg.author, msg.len, msg.data);
-
-        if (inbox_count < MAX_MESSAGES) {
-            inbox[inbox_count].id = next_id++;
-            strncpy(inbox[inbox_count].sender, msg.author, 63);
-            inbox[inbox_count].timestamp = msg.tv_sec;
-            strncpy(inbox[inbox_count].encrypted_preview, msg.data, 255);
-            inbox_count++;
-        }
-    
+        /* mark sent */
+        if (idx >= 0)
+            outbox_waiting[idx] = 0;
     }
 
     close(dev_fd);
