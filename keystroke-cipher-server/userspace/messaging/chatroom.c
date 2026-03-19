@@ -84,8 +84,8 @@ int chatroom_send(const char *plaintext)
         return -1;
     }
 
-    // broadcast to ALL peers - 1 means chatroom message 
-    client_broadcast((const char*)&encrypted, 1);
+    // broadcast to ALL peers - 1 means chatroom message
+    client_broadcast((const char*)&encrypted, sizeof(encrypted), 1);
     return 0;
 }
 
